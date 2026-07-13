@@ -38,6 +38,18 @@ npm run dev
 
 Buka `http://localhost:5173`. Pilih peran pada halaman login. Tombol **Reset data demo** mengembalikan data awal.
 
+### Akun demo terisolasi
+
+Produksi dapat menyediakan satu login demo berbasis environment tanpa membuat akun Firebase. UID demo selalu memakai data sintetis lokal dan tidak pernah berlangganan Firestore klinis. Konfigurasinya:
+
+```env
+VITE_DEMO_ACCOUNT_ENABLED=true
+VITE_DEMO_ACCOUNT_EMAIL=demo@example.test
+VITE_DEMO_ACCOUNT_PASSWORD=ganti-dengan-password-demo
+```
+
+Nilai `VITE_*` tertanam pada bundle dan bukan rahasia. Mekanisme ini hanya aman karena akun demo tidak memberikan akses Firebase dan tidak boleh digunakan sebagai autentikasi data nyata.
+
 ## Pemeriksaan kualitas
 
 ```bash

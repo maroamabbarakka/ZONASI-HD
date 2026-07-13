@@ -1,4 +1,4 @@
-const CACHE = 'zonasi-hd-shell-v6';
+const CACHE = 'zonasi-hd-shell-v7';
 const SHELL = ['/', '/manifest.webmanifest', '/app-icon.png', '/logo-zonasi-hd-white.png', '/logo-zonasi-hd-square.png'];
 
 self.addEventListener('install', (event) => {

@@ -3,6 +3,7 @@ import { createDemoData } from '../data/demoData';
 import type { Alert, AppData, DataMode, HDSession, Patient, PatientInput, SessionFormData, User, UserRole } from '../types';
 import { calculateIDWG, calculateIDWGRaw, calculateYellowStreak, getZone } from '../utils/zonasiCalculator';
 import { normalizeRole } from '../lib/permissions';
+import { demoAccountConfig, matchesDemoAccount } from '../lib/demoAccount';
 
 const DATA_KEY = 'zonasi-hd-demo-data-v1';
 const USER_KEY = 'zonasi-hd-demo-user-v1';
@@ -98,6 +99,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback((role: UserRole) => setUser(demoUsers[role]), []);
   const loginFirebase = useCallback(async (email: string, password: string) => {
+    if (matchesDemoAccount(email, password, demoAccountConfig)) {
+      setUser(demoUsers.SUPERVISOR);
+      return;
+    }
     const { signInWithFirebase } = await import('../services/firebase');
     setUser(await signInWithFirebase(email, password));
   }, []);
