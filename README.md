@@ -50,6 +50,10 @@ VITE_DEMO_ACCOUNT_PASSWORD=ganti-dengan-password-demo
 
 Nama akun dibentuk sebagai `{role}@{domain}` untuk role `perawat`, `supervisor`, `dokter`, dan `admin`. Nilai `VITE_*` tertanam pada bundle dan bukan rahasia. Mekanisme ini hanya aman karena akun demo tidak memberikan akses Firebase dan tidak boleh digunakan sebagai autentikasi data nyata.
 
+### Preview tautan media sosial
+
+Open Graph dan Twitter Card menggunakan cover absolut `https://zonasi-hd.web.app/cover-zonasi-hd.png` berukuran 1200×675. Metadata berada langsung pada `index.html`, sehingga dapat dibaca crawler tanpa menjalankan JavaScript. Jika platform masih menampilkan cache lama, lakukan scrape ulang melalui debugger platform atau bagikan URL sekali dengan query version, misalnya `https://zonasi-hd.web.app/?v=2`.
+
 ## Pemeriksaan kualitas
 
 ```bash
