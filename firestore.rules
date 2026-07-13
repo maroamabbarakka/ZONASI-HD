@@ -1,0 +1,27 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function currentUser() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isAdmin() {
+      return signedIn() && currentUser().role == 'ADMIN';
+    }
+
+    match /users/{userId} {
+      allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
+      allow create, update, delete: if isAdmin();
+    }
+
+    // Data klinis belum diaktifkan pada runtime MVP. Rules tetap tertutup
+    // sampai transaksi, validasi field, dan audit trail selesai diuji.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
