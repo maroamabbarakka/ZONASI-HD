@@ -7,8 +7,8 @@ import type { UserRole } from '../types';
 const firebaseEnabled = import.meta.env.VITE_FIREBASE_ENABLED === 'true';
 
 const roles: Array<{ role: UserRole; title: string; description: string }> = [
-  { role: 'PK_II', title: 'Perawat PK II', description: 'Input sesi, edukasi, dan monitoring pasien' },
-  { role: 'PK_III', title: 'Perawat PK III', description: 'Input sesi, protokol Merah, dan tindak lanjut alert' },
+  { role: 'PERAWAT', title: 'Perawat', description: 'Input sesi, edukasi, dan monitoring pasien' },
+  { role: 'SUPERVISOR', title: 'Supervisor Klinis', description: 'Master pasien, protokol Merah, dan tindak lanjut alert' },
   { role: 'DOKTER', title: 'Dokter DPJP', description: 'Supervisi klinis, protokol, dan laporan' },
   { role: 'ADMIN', title: 'Administrator', description: 'Akses demo untuk konfigurasi dan laporan' },
 ];

@@ -78,14 +78,14 @@ export function getQuickRecommendations(zone: Zone, role: string): string[] {
     base.push('Konseling diet natrium & pembatasan cairan intensif');
     base.push('Evaluasi target UF dan toleransi pasien sesuai asesmen klinis');
     base.push('Monitoring ketat selama sesi HD');
-    if (role === 'PK_III' || role === 'DOKTER') {
+    if (role === 'SUPERVISOR' || role === 'DOKTER') {
       base.push('Evaluasi kemungkinan dry weight adjustment');
     }
   }
 
   if (zone === 'MERAH') {
     base.push('AKTIVASI PROTOKOL EDEMA PARU');
-    base.push('Lakukan asesmen segera dan eskalasi kepada PK III/DPJP');
+    base.push('Lakukan asesmen segera dan eskalasi kepada Supervisor Klinis/DPJP');
     base.push('Ikuti protokol kegawatdaruratan dan instruksi medis setempat');
     base.push('Catat semua tindakan di rekam medis');
   }

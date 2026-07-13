@@ -1,5 +1,5 @@
 export type Zone = 'HIJAU' | 'KUNING' | 'MERAH';
-export type UserRole = 'PK_II' | 'PK_III' | 'DOKTER' | 'ADMIN';
+export type UserRole = 'PERAWAT' | 'SUPERVISOR' | 'DOKTER' | 'ADMIN';
 
 export interface User {
   uid: string;
@@ -24,6 +24,23 @@ export interface Patient {
   risk_level: 'low' | 'medium' | 'high';
   is_active: boolean;
   notes?: string;
+  created_at?: string;
+  created_by?: string;
+  updated_at?: string;
+}
+
+export interface PatientInput {
+  rm: string;
+  nama: string;
+  tanggal_lahir: string;
+  jenis_kelamin: 'L' | 'P';
+  bb_kering: number;
+  notes?: string;
+}
+
+export interface PatientImportRow extends PatientInput {
+  rowNumber: number;
+  errors: string[];
 }
 
 export interface HDSession {
@@ -69,3 +86,5 @@ export interface AppData {
   sessions: HDSession[];
   alerts: Alert[];
 }
+
+export type DataMode = 'demo' | 'firebase';

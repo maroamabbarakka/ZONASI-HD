@@ -5,12 +5,36 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function currentUser() {
+    function profile() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
+    function role() {
+      return profile().role;
+    }
+
+    function isMedicalUser() {
+      return signedIn() && role() in ['PERAWAT', 'SUPERVISOR', 'DOKTER', 'ADMIN', 'PK_II', 'PK_III'];
+    }
+
+    function isSessionWriter() {
+      return signedIn() && role() in ['PERAWAT', 'SUPERVISOR', 'PK_II', 'PK_III'];
+    }
+
+    function isSupervisor() {
+      return signedIn() && role() in ['SUPERVISOR', 'PK_III'];
+    }
+
     function isAdmin() {
-      return signedIn() && currentUser().role == 'ADMIN';
+      return signedIn() && role() == 'ADMIN';
+    }
+
+    function validPatient(data) {
+      return data.rm is string && data.rm.size() > 0
+        && data.nama is string && data.nama.size() > 0
+        && data.tanggal_lahir is string
+        && data.jenis_kelamin in ['L', 'P']
+        && data.bb_kering is number && data.bb_kering >= 20 && data.bb_kering <= 250;
     }
 
     match /users/{userId} {
@@ -18,8 +42,49 @@ service cloud.firestore {
       allow create, update, delete: if isAdmin();
     }
 
-    // Data klinis belum diaktifkan pada runtime MVP. Rules tetap tertutup
-    // sampai transaksi, validasi field, dan audit trail selesai diuji.
+    match /patient_keys/{rmKey} {
+      allow read: if isSupervisor() || isAdmin();
+      allow create, update, delete: if isSupervisor() || isAdmin();
+    }
+
+    match /patients/{patientId} {
+      allow read: if isMedicalUser();
+      allow create: if (isSupervisor() || isAdmin()) && validPatient(request.resource.data);
+      allow update: if (
+        (isSupervisor() || isAdmin()) && validPatient(request.resource.data)
+      ) || (
+        isSessionWriter()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'latest_session_date', 'latest_pre_weight', 'latest_idwg_pct',
+          'latest_zone', 'yellow_streak', 'risk_level', 'updated_at'
+        ])
+      );
+      allow delete: if isAdmin();
+
+      match /sessions/{sessionId} {
+        allow read: if isMedicalUser();
+        allow create: if isSessionWriter()
+          && request.resource.data.patient_id == patientId
+          && request.resource.data.nurse_uid == request.auth.uid
+          && request.resource.data.pre_weight is number
+          && request.resource.data.idwg_pct is number
+          && request.resource.data.zone in ['HIJAU', 'KUNING', 'MERAH'];
+        allow update, delete: if false;
+      }
+    }
+
+    match /alerts/{alertId} {
+      allow read: if isMedicalUser();
+      allow create: if isSessionWriter()
+        && request.resource.data.type in ['YELLOW_STREAK_3', 'RECENT_RED']
+        && request.resource.data.acknowledged == false;
+      allow update: if (isSupervisor() || role() == 'DOKTER' || isAdmin())
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'acknowledged', 'acknowledged_by', 'acknowledged_at'
+        ]);
+      allow delete: if isAdmin();
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

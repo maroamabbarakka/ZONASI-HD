@@ -8,11 +8,14 @@ Command Center visual untuk pemantauan *Interdialytic Weight Gain* (IDWG) pasien
 
 ## Status
 
-MVP demonstrasi sudah dapat dijalankan penuh. Firebase project `zonasi-hd` telah dihubungkan untuk Email/Password Authentication dan pembacaan role dari `users/{uid}`. Data klinis masih disimpan sebagai data dummy di `localStorage`, sehingga belum boleh digunakan untuk data pasien nyata.
+MVP demonstrasi sudah dapat dijalankan penuh. Firebase project `zonasi-hd` telah dihubungkan untuk Email/Password Authentication, role `users/{uid}`, serta sinkronisasi real-time pasien, sesi, dan alert. Login role demo tetap memakai data dummy terpisah di `localStorage`.
 
 Fitur yang tersedia:
 
 - login Firebase Email/Password dengan role Firestore, serta login simulasi untuk demo;
+- master pasien dengan tambah/edit dan nomor RM unik;
+- bulk import XLSX khusus Administrator dengan preview dan validasi;
+- sinkronisasi pasien, sesi, dan alert secara real-time untuk pengguna Firebase;
 - Command Center dengan kartu zona dan statistik;
 - form sesi HD dengan preview IDWG real-time dan validasi;
 - Early Warning untuk tiga sesi Kuning berturut-turut;
@@ -48,7 +51,7 @@ Unit test meliputi rumus, batas zona tepat pada 3% dan 5%, input tidak valid, da
 
 ## Batas MVP dan tahap produksi
 
-MVP ini sengaja tetap memakai data klinis dummy lokal agar langsung dapat didemonstrasikan. Sebelum penggunaan klinis, diperlukan migrasi data pasien/sesi/alert ke Firestore atau backend RS, security rules yang diuji, audit privasi, verifikasi klinis/SPO oleh komite terkait, audit akses, backup, monitoring, dan uji penerimaan pengguna.
+Pengguna Firebase kini memakai Firestore, sedangkan login demo tetap lokal. Sebelum penggunaan klinis, tetap diperlukan audit privasi, verifikasi klinis/SPO oleh komite terkait, pengujian rules, backup, monitoring, dan uji penerimaan pengguna.
 
 Konfigurasi proyek aktif tersimpan di `.env.local` dan tidak ikut Git. Cache Firestore persisten belum diaktifkan karena perangkat yang menyimpan data medis harus melalui kebijakan perangkat tepercaya dan persetujuan privasi.
 
@@ -62,12 +65,23 @@ Konfigurasi proyek aktif tersimpan di `.env.local` dan tidak ikut Git. Cache Fir
 ```json
 {
   "displayName": "Nama Petugas",
-  "role": "PK_III",
+  "role": "SUPERVISOR",
   "unit": "Hemodialisis"
 }
 ```
 
-Nilai `role` yang diterima: `PK_II`, `PK_III`, `DOKTER`, atau `ADMIN`.
+Nilai role resmi:
+
+- `PERAWAT`: input sesi dan monitoring;
+- `SUPERVISOR`: master pasien, input sesi, protokol Merah, dan alert;
+- `DOKTER`: supervisi, protokol, alert, dan laporan;
+- `ADMIN`: akun, bulk import, master pasien, dan konfigurasi.
+
+Role lama `PK_II` dan `PK_III` masih dibaca sebagai `PERAWAT` dan `SUPERVISOR` selama masa migrasi, tetapi dokumen baru harus memakai nama role resmi.
+
+### Bulk import pasien
+
+Menu **Pasien → Import XLSX** hanya muncul untuk `ADMIN`. File harus memiliki kolom nama pasien dan BB Kering. Nomor RM dan tanggal lahir wajib tersedia atau dilengkapi pada preview. Nama yang sama diperbolehkan; nomor RM yang sama ditolak melalui transaksi `patient_keys/{rm_normalized}`.
 
 Deploy rules setelah Firestore dibuat:
 

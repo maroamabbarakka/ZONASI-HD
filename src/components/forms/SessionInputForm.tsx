@@ -17,8 +17,9 @@ const schema = z.object({
 });
 type Values = z.infer<typeof schema>;
 
-export function SessionInputForm({ patient, role, onSave, onCancel }: { patient: Patient; role: UserRole; onSave: (data: SessionFormData) => void; onCancel: () => void }) {
+export function SessionInputForm({ patient, role, onSave, onCancel }: { patient: Patient; role: UserRole; onSave: (data: SessionFormData) => Promise<void> | void; onCancel: () => void }) {
   const [interventions, setInterventions] = useState<string[]>([]);
+  const [saveError, setSaveError] = useState('');
   const { register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm<Values>({
     resolver: zodResolver(schema), defaultValues: { pre_weight: patient.latest_pre_weight ?? patient.bb_kering + 1.5, shift: 'Pagi', notes: '' },
   });
@@ -29,7 +30,7 @@ export function SessionInputForm({ patient, role, onSave, onCancel }: { patient:
       return { idwg, zone: getZone(idwg) };
     } catch { return null; }
   }, [preWeight, patient.bb_kering]);
-  const submit = (values: Values) => onSave({ ...values, interventions });
+  const submit = async (values: Values) => { setSaveError(''); try { await onSave({ ...values, interventions }); } catch (error) { setSaveError(error instanceof Error ? error.message : 'Sesi gagal disimpan.'); } };
   return (
     <form onSubmit={handleSubmit(submit)} className="session-form">
       <div className="patient-summary"><div><span className="eyebrow">Pasien terpilih</span><h2>{patient.nama}</h2><p>{patient.rm}</p></div><div><span className="eyebrow">BB Kering</span><strong>{patient.bb_kering.toFixed(1)} kg</strong></div></div>
@@ -48,7 +49,7 @@ export function SessionInputForm({ patient, role, onSave, onCancel }: { patient:
       </div>}
       {calculation && <ProtocolChecklist zone={calculation.zone as Zone} role={role} selected={interventions} onChange={setInterventions} />}
       <label className="field"><span>Catatan perawat</span><textarea rows={3} placeholder="Kondisi klinis atau edukasi yang diberikan…" {...register('notes')} />{errors.notes && <small className="error">{errors.notes.message}</small>}</label>
-      <div className="modal-actions"><button type="button" className="button secondary" onClick={onCancel}>Batal</button><button type="submit" className="button primary" disabled={!calculation || isSubmitting}>Simpan sesi &amp; perbarui zona</button></div>
+      {saveError && <div className="notice danger">{saveError}</div>}<div className="modal-actions"><button type="button" className="button secondary" onClick={onCancel}>Batal</button><button type="submit" className="button primary" disabled={!calculation || isSubmitting}>Simpan sesi &amp; perbarui zona</button></div>
     </form>
   );
 }

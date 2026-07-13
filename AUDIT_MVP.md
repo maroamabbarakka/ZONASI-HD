@@ -20,7 +20,7 @@ Dokumen lama memiliki beberapa karakter mojibake akibat encoding, tetapi rumus d
 
 React 19, TypeScript strict, Vite, React Router, React Hook Form, Zod, Recharts, dan CSS responsif. `AppContext` menjadi data layer untuk mode demo dan menyimpan data secara persisten di browser. Perubahan antartab disinkronkan melalui event `storage`.
 
-Mode demo dipilih untuk data klinis agar alur presentasi dapat diuji penuh. Setelah audit awal, Firebase project `zonasi-hd` dihubungkan untuk autentikasi Email/Password dan pembacaan profil role `users/{uid}`. Migrasi data klinis real-time ke Firestore masih menjadi tahap berikutnya.
+Mode demo tetap tersedia untuk presentasi. Pengguna Firebase kini memakai autentikasi Email/Password, profil role `users/{uid}`, dan sinkronisasi real-time untuk pasien, sesi, serta alert. Master pasien memiliki kunci RM unik dan bulk import XLSX tervalidasi khusus Administrator.
 
 ## Verifikasi
 
