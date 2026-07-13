@@ -1,19 +1,21 @@
-export interface DemoAccountConfig {
+import type { UserRole } from '../types';
+
+export interface DemoAccountsConfig {
   enabled: boolean;
-  email: string;
+  domain: string;
   password: string;
 }
 
-export function matchesDemoAccount(email: string, password: string, config: DemoAccountConfig): boolean {
-  return config.enabled
-    && config.email.length > 0
-    && config.password.length >= 8
-    && email.trim().toLowerCase() === config.email.trim().toLowerCase()
-    && password === config.password;
+const demoRoles: UserRole[] = ['PERAWAT', 'SUPERVISOR', 'DOKTER', 'ADMIN'];
+
+export function getDemoAccountRole(email: string, password: string, config: DemoAccountsConfig): UserRole | null {
+  if (!config.enabled || config.domain.length === 0 || config.password.length < 6 || password !== config.password) return null;
+  const normalizedEmail = email.trim().toLowerCase();
+  return demoRoles.find((role) => normalizedEmail === `${role.toLowerCase()}@${config.domain.trim().toLowerCase()}`) ?? null;
 }
 
-export const demoAccountConfig: DemoAccountConfig = {
-  enabled: import.meta.env.VITE_DEMO_ACCOUNT_ENABLED === 'true',
-  email: import.meta.env.VITE_DEMO_ACCOUNT_EMAIL ?? '',
+export const demoAccountsConfig: DemoAccountsConfig = {
+  enabled: import.meta.env.VITE_DEMO_ACCOUNTS_ENABLED === 'true',
+  domain: import.meta.env.VITE_DEMO_ACCOUNT_DOMAIN ?? 'zonasi-hd.app',
   password: import.meta.env.VITE_DEMO_ACCOUNT_PASSWORD ?? '',
 };
