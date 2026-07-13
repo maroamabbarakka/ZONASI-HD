@@ -1,5 +1,6 @@
 export type Zone = 'HIJAU' | 'KUNING' | 'MERAH';
 export type UserRole = 'PERAWAT' | 'SUPERVISOR' | 'DOKTER' | 'ADMIN';
+export type SessionStatus = 'RECORDED' | 'VERIFIED' | 'REVIEWED' | 'CORRECTED' | 'VOIDED_WITH_REASON';
 
 export interface User {
   uid: string;
@@ -38,13 +39,15 @@ export interface PatientInput {
   notes?: string;
 }
 
-export interface PatientImportRow extends PatientInput {
+export interface PatientImportRow extends Omit<PatientInput, 'jenis_kelamin'> {
+  jenis_kelamin: 'L' | 'P' | '';
   rowNumber: number;
   errors: string[];
 }
 
 export interface HDSession {
   id: string;
+  submission_id: string;
   patient_id: string;
   session_date: string;
   shift: 'Pagi' | 'Siang' | 'Sore' | 'Malam';
@@ -52,6 +55,13 @@ export interface HDSession {
   post_weight?: number;
   idwg_pct: number;
   zone: Zone;
+  dry_weight_used_kg: number;
+  dry_weight_version: number;
+  formula_version: 'IDWG_V1';
+  threshold_version: 'ZONE_2026_V1';
+  protocol_version: 'HD_FLUID_V1';
+  status: SessionStatus;
+  calculation_authority: 'CLIENT_MVP';
   interventions: string[];
   uf_goal?: number;
   notes?: string;
@@ -73,6 +83,7 @@ export interface Alert {
 }
 
 export interface SessionFormData {
+  submission_id: string;
   pre_weight: number;
   post_weight?: number;
   uf_goal?: number;

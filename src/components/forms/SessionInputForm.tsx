@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import type { Patient, SessionFormData, UserRole, Zone } from '../../types';
@@ -18,6 +18,7 @@ const schema = z.object({
 type Values = z.infer<typeof schema>;
 
 export function SessionInputForm({ patient, role, onSave, onCancel }: { patient: Patient; role: UserRole; onSave: (data: SessionFormData) => Promise<void> | void; onCancel: () => void }) {
+  const submissionId = useRef(crypto.randomUUID());
   const [interventions, setInterventions] = useState<string[]>([]);
   const [saveError, setSaveError] = useState('');
   const { register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm<Values>({
@@ -30,7 +31,7 @@ export function SessionInputForm({ patient, role, onSave, onCancel }: { patient:
       return { idwg, zone: getZone(idwg) };
     } catch { return null; }
   }, [preWeight, patient.bb_kering]);
-  const submit = async (values: Values) => { setSaveError(''); try { await onSave({ ...values, interventions }); } catch (error) { setSaveError(error instanceof Error ? error.message : 'Sesi gagal disimpan.'); } };
+  const submit = async (values: Values) => { setSaveError(''); try { await onSave({ ...values, interventions, submission_id: submissionId.current }); } catch (error) { setSaveError(error instanceof Error ? error.message : 'Sesi gagal disimpan.'); } };
   return (
     <form onSubmit={handleSubmit(submit)} className="session-form">
       <div className="patient-summary"><div><span className="eyebrow">Pasien terpilih</span><h2>{patient.nama}</h2><p>{patient.rm}</p></div><div><span className="eyebrow">BB Kering</span><strong>{patient.bb_kering.toFixed(1)} kg</strong></div></div>

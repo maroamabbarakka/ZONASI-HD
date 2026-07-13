@@ -1,4 +1,4 @@
-const CACHE = 'zonasi-hd-shell-v4';
+const CACHE = 'zonasi-hd-shell-v5';
 const SHELL = ['/', '/manifest.webmanifest', '/app-icon.png', '/logo-zonasi-hd-white.png', '/logo-zonasi-hd-square.png'];
 
 self.addEventListener('install', (event) => {
@@ -13,9 +13,12 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
-  event.respondWith(fetch(event.request).then((response) => {
-    const copy = response.clone();
-    caches.open(CACHE).then((cache) => cache.put(event.request, copy));
-    return response;
-  }).catch(() => caches.match(event.request).then((cached) => cached || (event.request.mode === 'navigate' ? caches.match('/') : Response.error()))));
+  const url = new URL(event.request.url);
+  if (url.origin !== self.location.origin) return;
+  if (event.request.mode === 'navigate') {
+    event.respondWith(fetch(event.request).catch(() => caches.match('/')));
+    return;
+  }
+  if (!SHELL.includes(url.pathname)) return;
+  event.respondWith(caches.match(event.request).then((cached) => cached || fetch(event.request)));
 });

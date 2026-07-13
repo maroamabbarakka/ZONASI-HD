@@ -9,7 +9,7 @@ import { PatientDetail } from '../components/patient/PatientDetail';
 import { canHandleAlerts, canInputSession } from '../lib/permissions';
 
 export function DashboardPage() {
-  const { data, user, saveSession, acknowledgeAlert } = useApp();
+  const { data, user, saveSession, acknowledgeAlert, dataError, dataLoading, dataUpdatedAt, dataMode } = useApp();
   const [selected, setSelected] = useState<Patient | null>(null);
   const [inspected, setInspected] = useState<Patient | null>(null);
   const [choosing, setChoosing] = useState(false);
@@ -19,16 +19,19 @@ export function DashboardPage() {
   const active = data.patients.filter((patient) => patient.is_active);
   const visible = useMemo(() => active.filter((patient) => `${patient.nama} ${patient.rm}`.toLowerCase().includes(query.toLowerCase())), [active, query]);
   const counts = { HIJAU: active.filter((p) => p.latest_zone === 'HIJAU').length, KUNING: active.filter((p) => p.latest_zone === 'KUNING').length, MERAH: active.filter((p) => p.latest_zone === 'MERAH').length };
+  const zonedCount = counts.HIJAU + counts.KUNING + counts.MERAH;
   const openAlerts = data.alerts.filter((alert) => !alert.acknowledged);
   const canInput = canInputSession(user?.role);
   const now = new Intl.DateTimeFormat('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date());
   return <>
-    <header className="page-header"><div><span className="eyebrow">Command Center · {now}</span><h1>Situasi pasien terkini</h1><p>Prioritaskan Kuning dan Merah, lalu tindak lanjuti Early Warning.</p></div>{canInput && <button className="button primary" onClick={() => setChoosing(true)}><Plus /> Input sesi baru</button>}</header>
+    <header className="page-header"><div><span className="eyebrow">Command Center · {now}</span><h1>Situasi pasien terkini</h1><p>Prioritaskan Kuning dan Merah, lalu tindak lanjuti Early Warning. {dataMode === 'firebase' && dataUpdatedAt ? `Data diperbarui ${new Intl.DateTimeFormat('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date(dataUpdatedAt))}.` : ''}</p></div>{canInput && <button className="button primary" onClick={() => setChoosing(true)}><Plus /> Input sesi baru</button>}</header>
     {toast && <div className="toast"><Check />{toast}<button onClick={() => setToast('')}>×</button></div>}
+    {dataLoading && <div className="notice warning clinical-banner">Menghubungkan data klinis terbaru…</div>}
+    {dataError && <div className="notice danger clinical-banner"><strong>Data tidak dapat dimuat.</strong>&nbsp; {dataError} Angka di bawah tidak boleh dianggap sebagai kondisi terbaru.</div>}
     {openAlerts.length > 0 && <section className="alert-stack"><div className="section-heading"><div><span className="eyebrow"><BellRing /> Early Warning</span><h2>{openAlerts.length} pasien memerlukan perhatian</h2></div></div>{openAlerts.map((alert) => <div className={`alert-item ${alert.type === 'RECENT_RED' ? 'urgent' : ''}`} key={alert.id}><AlertTriangle /><div><strong>{alert.patient_name}</strong><p>{alert.message}</p></div>{canHandleAlerts(user?.role) && <button className="button small secondary" onClick={() => void acknowledgeAlert(alert.id)}>Tandai ditindaklanjuti</button>}</div>)}</section>}
     <section className="stats-grid">
       <div className="stat-card neutral"><Droplets /><div><span>Pasien aktif</span><strong>{active.length}</strong><small>Status terbaru seluruh pasien</small></div></div>
-      <div className="stat-card green"><span className="stat-dot" /><div><span>Zona Hijau</span><strong>{counts.HIJAU}</strong><small>{active.length ? Math.round(counts.HIJAU / active.length * 100) : 0}% dari pasien aktif</small></div></div>
+      <div className="stat-card green"><span className="stat-dot" /><div><span>Zona Hijau</span><strong>{counts.HIJAU}</strong><small>{zonedCount ? Math.round(counts.HIJAU / zonedCount * 100) : 0}% dari {zonedCount} pasien dengan hasil</small></div></div>
       <div className="stat-card yellow"><span className="stat-dot" /><div><span>Zona Kuning</span><strong>{counts.KUNING}</strong><small>Perlu monitoring lebih ketat</small></div></div>
       <div className="stat-card red"><span className="stat-dot" /><div><span>Zona Merah</span><strong>{counts.MERAH}</strong><small>Perlu asesmen dan eskalasi</small></div></div>
     </section>

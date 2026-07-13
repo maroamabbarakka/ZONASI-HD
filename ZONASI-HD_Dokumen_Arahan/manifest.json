@@ -1,0 +1,20 @@
+{
+  "package": "ZONASI-HD Detailed Markdown Guidance",
+  "generated_date": "2026-07-13",
+  "files": [
+    "00_INDEX.md",
+    "01_VISI_RUANG_LINGKUP_PRODUK.md",
+    "02_PERAN_DAN_ALUR_PENGGUNA.md",
+    "03_RAPOR_PASIEN_PORTAL_REALTIME.md",
+    "04_SPESIFIKASI_PDF_DAN_FOOTER_QR.md",
+    "05_KEAMANAN_QR_PRIVASI_DAN_AKSES.md",
+    "06_TEMPLATE_DAN_IMPOR_XLSX.md",
+    "07_MODEL_DATA_BACKEND_DAN_API.md",
+    "08_ALERT_DAN_WORKFLOW_KLINIS.md",
+    "09_DASHBOARD_LAPORAN_DAN_KPI.md",
+    "10_PENGUJIAN_UAT_DAN_KRITERIA_TERIMA.md",
+    "11_ROADMAP_IMPLEMENTASI.md",
+    "12_BACKLOG_TEKNIS_DAN_DEFINITION_OF_DONE.md"
+  ],
+  "notes": "Clinical protocols and thresholds require local clinical approval."
+}

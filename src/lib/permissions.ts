@@ -17,4 +17,5 @@ export const canInputSession = (role?: UserRole) => role === 'PERAWAT' || role =
 export const canManagePatients = (role?: UserRole) => role === 'SUPERVISOR' || role === 'ADMIN';
 export const canImportPatients = (role?: UserRole) => role === 'ADMIN';
 export const canHandleAlerts = (role?: UserRole) => role === 'SUPERVISOR' || role === 'DOKTER' || role === 'ADMIN';
+export const canExportReports = (role?: UserRole) => role === 'SUPERVISOR' || role === 'DOKTER' || role === 'ADMIN';
 export const canViewRedProtocol = (role?: UserRole) => role !== 'PERAWAT';

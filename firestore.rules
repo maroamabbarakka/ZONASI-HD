@@ -13,20 +13,24 @@ service cloud.firestore {
       return profile().role;
     }
 
+    function isActiveUser() {
+      return signedIn() && (!('is_active' in profile()) || profile().is_active == true);
+    }
+
     function isMedicalUser() {
-      return signedIn() && role() in ['PERAWAT', 'SUPERVISOR', 'DOKTER', 'ADMIN', 'PK_II', 'PK_III'];
+      return isActiveUser() && role() in ['PERAWAT', 'SUPERVISOR', 'DOKTER', 'ADMIN', 'PK_II', 'PK_III'];
     }
 
     function isSessionWriter() {
-      return signedIn() && role() in ['PERAWAT', 'SUPERVISOR', 'PK_II', 'PK_III'];
+      return isActiveUser() && role() in ['PERAWAT', 'SUPERVISOR', 'PK_II', 'PK_III'];
     }
 
     function isSupervisor() {
-      return signedIn() && role() in ['SUPERVISOR', 'PK_III'];
+      return isActiveUser() && role() in ['SUPERVISOR', 'PK_III'];
     }
 
     function isAdmin() {
-      return signedIn() && role() == 'ADMIN';
+      return isActiveUser() && role() == 'ADMIN';
     }
 
     function validPatient(data) {
@@ -65,10 +69,16 @@ service cloud.firestore {
         allow read: if isMedicalUser();
         allow create: if isSessionWriter()
           && request.resource.data.patient_id == patientId
+          && request.resource.data.submission_id == sessionId
           && request.resource.data.nurse_uid == request.auth.uid
           && request.resource.data.pre_weight is number
           && request.resource.data.idwg_pct is number
-          && request.resource.data.zone in ['HIJAU', 'KUNING', 'MERAH'];
+          && request.resource.data.zone in ['HIJAU', 'KUNING', 'MERAH']
+          && request.resource.data.dry_weight_used_kg == get(/databases/$(database)/documents/patients/$(patientId)).data.bb_kering
+          && request.resource.data.formula_version == 'IDWG_V1'
+          && request.resource.data.threshold_version == 'ZONE_2026_V1'
+          && request.resource.data.status == 'VERIFIED'
+          && request.resource.data.calculation_authority == 'CLIENT_MVP';
         allow update, delete: if false;
       }
     }

@@ -26,6 +26,8 @@ interface AppContextValue {
   sessionsFor: (patientId: string) => HDSession[];
   dataMode: DataMode;
   dataError: string;
+  dataLoading: boolean;
+  dataUpdatedAt: string;
   createPatient: (input: PatientInput) => Promise<Patient>;
   updatePatient: (patientId: string, input: PatientInput) => Promise<void>;
   importPatients: (rows: PatientInput[]) => Promise<{ imported: number; failed: Array<{ rm: string; message: string }> }>;
@@ -47,7 +49,7 @@ function loadUser(): User | null {
     const saved = localStorage.getItem(USER_KEY);
     if (!saved) return null;
     const value = JSON.parse(saved) as User & { role: unknown }; const role = normalizeRole(value.role);
-    return role ? { ...value, role } : null;
+    return role && value.uid.startsWith('demo-') ? { ...value, role } : null;
   } catch {
     return null;
   }
@@ -57,13 +59,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<AppData>(loadData);
   const [user, setUser] = useState<User | null>(loadUser);
   const [dataError, setDataError] = useState('');
+  const [dataLoading, setDataLoading] = useState(false);
+  const [dataUpdatedAt, setDataUpdatedAt] = useState('');
   const dataMode: DataMode = user && !user.uid.startsWith('demo-') ? 'firebase' : 'demo';
 
   useEffect(() => { if (dataMode === 'demo') localStorage.setItem(DATA_KEY, JSON.stringify(data)); }, [data, dataMode]);
   useEffect(() => {
-    if (user) localStorage.setItem(USER_KEY, JSON.stringify(user));
+    if (user?.uid.startsWith('demo-')) localStorage.setItem(USER_KEY, JSON.stringify(user));
     else localStorage.removeItem(USER_KEY);
   }, [user]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void import('../services/firebase').then(({ restoreFirebaseSession }) => restoreFirebaseSession()).then((restored) => {
+      if (!cancelled && restored) setUser((current) => current ?? restored);
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     const sync = (event: StorageEvent) => {
@@ -74,12 +86,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!user || dataMode !== 'firebase') { setDataError(''); return; }
+    if (!user || dataMode !== 'firebase') { setDataError(''); setDataLoading(false); return; }
+    setDataLoading(true);
     let unsubscribe: (() => void) | undefined; let cancelled = false;
     void import('../services/firebase').then(async ({ waitForFirebaseAuth, subscribeClinicalData }) => {
       await waitForFirebaseAuth(user.uid); if (cancelled) return;
-      unsubscribe = subscribeClinicalData((next) => { setData(next); setDataError(''); }, setDataError);
-    }).catch((error) => setDataError(error instanceof Error ? error.message : 'Gagal menghubungkan data Firestore.'));
+      unsubscribe = subscribeClinicalData((next) => { setData(next); setDataError(''); setDataLoading(false); setDataUpdatedAt(new Date().toISOString()); }, (message) => { setDataError(message); setDataLoading(false); });
+    }).catch((error) => { setDataError(error instanceof Error ? error.message : 'Gagal menghubungkan data Firestore.'); setDataLoading(false); });
     return () => { cancelled = true; unsubscribe?.(); };
   }, [user, dataMode]);
 
@@ -100,13 +113,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const { saveSessionFirestore } = await import('../services/firebase');
       return saveSessionFirestore(patient, form, user);
     }
+    const existing = data.sessions.find((item) => item.patient_id === patient.id && item.submission_id === form.submission_id);
+    if (existing) return existing;
     const idwgPct = calculateIDWG(form.pre_weight, patient.bb_kering);
     const zone = getZone(idwgPct);
     const now = new Date().toISOString();
     const session: HDSession = {
-      id: crypto.randomUUID(), patient_id: patient.id, session_date: now,
+      id: form.submission_id, submission_id: form.submission_id, patient_id: patient.id, session_date: now,
       shift: form.shift, pre_weight: form.pre_weight, post_weight: form.post_weight,
-      idwg_pct: idwgPct, zone, interventions: form.interventions,
+      idwg_pct: idwgPct, zone, dry_weight_used_kg: patient.bb_kering, dry_weight_version: 1,
+      formula_version: 'IDWG_V1', threshold_version: 'ZONE_2026_V1', protocol_version: 'HD_FLUID_V1',
+      status: 'VERIFIED', calculation_authority: 'CLIENT_MVP', interventions: form.interventions,
       uf_goal: form.uf_goal, notes: form.notes, nurse_uid: user.uid,
       nurse_name: user.displayName, created_at: now,
     };
@@ -140,7 +157,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       };
     });
     return session;
-  }, [user, dataMode]);
+  }, [user, dataMode, data.sessions]);
 
   const acknowledgeAlert = useCallback(async (alertId: string) => {
     if (!user || !['SUPERVISOR', 'DOKTER', 'ADMIN'].includes(user.role)) return;
@@ -178,8 +195,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     .filter((session) => session.patient_id === patientId)
     .sort((a, b) => b.session_date.localeCompare(a.session_date)), [data.sessions]);
 
-  const value = useMemo(() => ({ data, user, login, loginFirebase, logout, saveSession, acknowledgeAlert, resetDemo, sessionsFor, dataMode, dataError, createPatient, updatePatient, importPatients }),
-    [data, user, login, loginFirebase, logout, saveSession, acknowledgeAlert, resetDemo, sessionsFor, dataMode, dataError, createPatient, updatePatient, importPatients]);
+  const value = useMemo(() => ({ data, user, login, loginFirebase, logout, saveSession, acknowledgeAlert, resetDemo, sessionsFor, dataMode, dataError, dataLoading, dataUpdatedAt, createPatient, updatePatient, importPatients }),
+    [data, user, login, loginFirebase, logout, saveSession, acknowledgeAlert, resetDemo, sessionsFor, dataMode, dataError, dataLoading, dataUpdatedAt, createPatient, updatePatient, importPatients]);
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }
 

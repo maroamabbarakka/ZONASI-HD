@@ -1,5 +1,5 @@
 import { FirebaseError, initializeApp, type FirebaseApp } from 'firebase/app';
-import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, type Auth } from 'firebase/auth';
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, type Auth, type User as FirebaseUser } from 'firebase/auth';
 import {
   collection, collectionGroup, doc, getDoc, initializeFirestore, memoryLocalCache,
   onSnapshot, runTransaction, serverTimestamp, setDoc, updateDoc,
@@ -50,16 +50,20 @@ const patientFromDoc = (snap: QueryDocumentSnapshot<DocumentData>): Patient => {
   };
 };
 
-const sessionFromDoc = (snap: QueryDocumentSnapshot<DocumentData>): HDSession => {
-  const value = snap.data();
+const sessionFromValue = (id: string, value: DocumentData): HDSession => {
   return {
-    id: snap.id, patient_id: String(value.patient_id), session_date: iso(value.session_date) ?? new Date().toISOString(),
+    id, submission_id: String(value.submission_id ?? id), patient_id: String(value.patient_id), session_date: iso(value.session_date) ?? new Date().toISOString(),
     shift: value.shift ?? 'Pagi', pre_weight: Number(value.pre_weight), post_weight: value.post_weight == null ? undefined : Number(value.post_weight),
     idwg_pct: Number(value.idwg_pct), zone: value.zone, interventions: value.interventions ?? [],
+    dry_weight_used_kg: Number(value.dry_weight_used_kg ?? value.dry_weight_used ?? 0), dry_weight_version: Number(value.dry_weight_version ?? 1),
+    formula_version: 'IDWG_V1', threshold_version: 'ZONE_2026_V1', protocol_version: 'HD_FLUID_V1',
+    status: value.status ?? 'VERIFIED', calculation_authority: 'CLIENT_MVP',
     uf_goal: value.uf_goal == null ? undefined : Number(value.uf_goal), notes: value.notes,
     nurse_uid: String(value.nurse_uid), nurse_name: String(value.nurse_name ?? ''), created_at: iso(value.created_at) ?? new Date().toISOString(),
   };
 };
+
+const sessionFromDoc = (snap: QueryDocumentSnapshot<DocumentData>): HDSession => sessionFromValue(snap.id, snap.data());
 
 const alertFromDoc = (snap: QueryDocumentSnapshot<DocumentData>): Alert => {
   const value = snap.data();
@@ -75,16 +79,23 @@ function requireFirebase() {
   return { auth, db };
 }
 
+async function userProfile(firebaseUser: FirebaseUser, fallbackEmail = ''): Promise<User> {
+  if (!db) throw new Error('Firestore belum tersedia.');
+  const profile = await getDoc(doc(db, 'users', firebaseUser.uid));
+  if (!profile.exists()) throw new Error('Profil pengguna belum dibuat pada collection users.');
+  const value = profile.data();
+  if (value.is_active === false) throw new Error('Akun pengguna telah dinonaktifkan. Hubungi administrator unit.');
+  const role = normalizeRole(value.role);
+  if (!role) throw new Error('Role pengguna tidak valid.');
+  return { uid: firebaseUser.uid, email: firebaseUser.email ?? fallbackEmail, displayName: String(value.displayName || firebaseUser.displayName || fallbackEmail), role, unit: String(value.unit || 'Hemodialisis') };
+}
+
 export async function signInWithFirebase(email: string, password: string): Promise<User> {
   if (!auth || !db) throw new Error('Firebase belum dikonfigurasi.');
   try {
     const credential = await signInWithEmailAndPassword(auth, email, password);
-    const profile = await getDoc(doc(db, 'users', credential.user.uid));
-    if (!profile.exists()) { await signOut(auth); throw new Error('Profil pengguna belum dibuat pada collection users.'); }
-    const value = profile.data();
-    const role = normalizeRole(value.role);
-    if (!role) { await signOut(auth); throw new Error('Role pengguna tidak valid.'); }
-    return { uid: credential.user.uid, email: credential.user.email ?? email, displayName: String(value.displayName || credential.user.displayName || email), role, unit: String(value.unit || 'Hemodialisis') };
+    try { return await userProfile(credential.user, email); }
+    catch (error) { await signOut(auth); throw error; }
   } catch (error) {
     if (!(error instanceof FirebaseError)) throw error;
     if (error.code === 'auth/invalid-credential') throw new Error('Email atau kata sandi tidak sesuai.');
@@ -94,6 +105,16 @@ export async function signInWithFirebase(email: string, password: string): Promi
     if (error.code === 'permission-denied') throw new Error('Firestore menolak pembacaan profil pengguna. Periksa Security Rules.');
     throw new Error(`Login Firebase gagal (${error.code}).`);
   }
+}
+
+export async function restoreFirebaseSession(): Promise<User | null> {
+  if (!auth || !db) return null;
+  const current = await new Promise<FirebaseUser | null>((resolve) => {
+    const unsubscribe = onAuthStateChanged(auth!, (value) => { unsubscribe(); resolve(value); });
+  });
+  if (!current) return null;
+  try { return await userProfile(current); }
+  catch { await signOut(auth); return null; }
 }
 
 export async function waitForFirebaseAuth(uid: string): Promise<void> {
@@ -152,19 +173,24 @@ export async function updatePatientFirestore(patientId: string, input: PatientIn
 }
 
 export async function saveSessionFirestore(patient: Patient, form: SessionFormData, user: User): Promise<HDSession> {
-  const { db } = requireFirebase(); const patientRef = doc(db, 'patients', patient.id); const sessionRef = doc(collection(db, 'patients', patient.id, 'sessions'));
-  const idwg = calculateIDWG(form.pre_weight, patient.bb_kering); const zone = getZone(idwg); const now = new Date().toISOString();
-  const session: HDSession = { id: sessionRef.id, patient_id: patient.id, session_date: now, shift: form.shift, pre_weight: form.pre_weight, post_weight: form.post_weight, idwg_pct: idwg, zone, interventions: form.interventions, uf_goal: form.uf_goal, notes: form.notes, nurse_uid: user.uid, nurse_name: user.displayName, created_at: now };
-  await runTransaction(db, async (transaction) => {
+  const { db } = requireFirebase(); const patientRef = doc(db, 'patients', patient.id); const sessionRef = doc(db, 'patients', patient.id, 'sessions', form.submission_id);
+  return runTransaction(db, async (transaction) => {
+    const duplicate = await transaction.get(sessionRef);
+    if (duplicate.exists()) return sessionFromValue(duplicate.id, duplicate.data());
     const current = await transaction.get(patientRef); if (!current.exists()) throw new Error('Pasien tidak ditemukan.');
+    if (current.data().is_active === false) throw new Error('Pasien nonaktif tidak dapat memiliki sesi baru.');
+    const dryWeight = Number(current.data().bb_kering); const dryWeightVersion = Number(current.data().current_dry_weight_version ?? 1);
+    const idwg = calculateIDWG(form.pre_weight, dryWeight); const zone = getZone(idwg); const now = new Date().toISOString();
+    const session: HDSession = { id: sessionRef.id, submission_id: form.submission_id, patient_id: patient.id, session_date: now, shift: form.shift, pre_weight: form.pre_weight, post_weight: form.post_weight, idwg_pct: idwg, zone, dry_weight_used_kg: dryWeight, dry_weight_version: dryWeightVersion, formula_version: 'IDWG_V1', threshold_version: 'ZONE_2026_V1', protocol_version: 'HD_FLUID_V1', status: 'VERIFIED', calculation_authority: 'CLIENT_MVP', interventions: form.interventions, uf_goal: form.uf_goal, notes: form.notes, nurse_uid: user.uid, nurse_name: user.displayName, created_at: now };
     const yellowStreak = zone === 'KUNING' ? Number(current.data().yellow_streak ?? 0) + 1 : 0;
-    transaction.set(sessionRef, { ...session, session_date: serverTimestamp(), created_at: serverTimestamp() });
+    const storedSession = Object.fromEntries(Object.entries(session).filter(([, value]) => value !== undefined));
+    transaction.set(sessionRef, { ...storedSession, session_date: serverTimestamp(), created_at: serverTimestamp() });
     transaction.update(patientRef, { latest_session_date: serverTimestamp(), latest_pre_weight: form.pre_weight, latest_idwg_pct: idwg, latest_zone: zone, yellow_streak: yellowStreak, risk_level: zone === 'MERAH' ? 'high' : yellowStreak >= 3 ? 'medium' : 'low', updated_at: serverTimestamp() });
     if (yellowStreak === 3 || zone === 'MERAH') {
       const alertRef = doc(collection(db, 'alerts')); transaction.set(alertRef, { patient_id: patient.id, patient_name: patient.nama, type: zone === 'MERAH' ? 'RECENT_RED' : 'YELLOW_STREAK_3', triggered_at: serverTimestamp(), acknowledged: false, message: zone === 'MERAH' ? `${patient.nama} baru tercatat di Zona Merah (${idwg.toFixed(1)}%).` : `${patient.nama} berada di Zona Kuning selama 3 sesi berturut-turut.` });
     }
+    return session;
   });
-  return session;
 }
 
 export async function acknowledgeAlertFirestore(alertId: string, user: User): Promise<void> {
@@ -187,5 +213,5 @@ export function subscribeUserProfiles(onData: (users: User[]) => void, onError: 
 
 export async function saveUserProfile(profile: User): Promise<void> {
   const { db } = requireFirebase();
-  await setDoc(doc(db, 'users', profile.uid.trim()), { email: profile.email.trim(), displayName: profile.displayName.trim(), role: profile.role, unit: profile.unit || 'Hemodialisis', updated_at: serverTimestamp() }, { merge: true });
+  await setDoc(doc(db, 'users', profile.uid.trim()), { email: profile.email.trim(), displayName: profile.displayName.trim(), role: profile.role, unit: profile.unit || 'Hemodialisis', is_active: true, updated_at: serverTimestamp() }, { merge: true });
 }

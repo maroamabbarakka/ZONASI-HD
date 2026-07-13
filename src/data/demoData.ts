@@ -32,6 +32,7 @@ function makeSession(patient: Patient, pct: number, index: number): HDSession {
   const timestamp = day((index - 4) * 3, index % 2 ? 13 : 8);
   return {
     id: `${patient.id}-s-${index}`,
+    submission_id: `${patient.id}-s-${index}`,
     patient_id: patient.id,
     session_date: timestamp,
     shift: index % 2 ? 'Siang' : 'Pagi',
@@ -39,6 +40,13 @@ function makeSession(patient: Patient, pct: number, index: number): HDSession {
     post_weight: patient.bb_kering + 0.2,
     idwg_pct: idwg,
     zone: getZone(idwg),
+    dry_weight_used_kg: patient.bb_kering,
+    dry_weight_version: 1,
+    formula_version: 'IDWG_V1',
+    threshold_version: 'ZONE_2026_V1',
+    protocol_version: 'HD_FLUID_V1',
+    status: 'VERIFIED',
+    calculation_authority: 'CLIENT_MVP',
     interventions: [],
     nurse_uid: 'demo-pk3',
     nurse_name: 'Perawat Demo',
