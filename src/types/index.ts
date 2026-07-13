@@ -21,6 +21,7 @@ export interface Patient {
   latest_pre_weight?: number;
   latest_idwg_pct?: number;
   latest_zone?: Zone;
+  latest_session_status?: SessionStatus;
   yellow_streak: number;
   risk_level: 'low' | 'medium' | 'high';
   is_active: boolean;
@@ -54,6 +55,7 @@ export interface HDSession {
   pre_weight: number;
   post_weight?: number;
   idwg_pct: number;
+  idwg_raw_pct?: number;
   zone: Zone;
   dry_weight_used_kg: number;
   dry_weight_version: number;
@@ -61,7 +63,7 @@ export interface HDSession {
   threshold_version: 'ZONE_2026_V1';
   protocol_version: 'HD_FLUID_V1';
   status: SessionStatus;
-  calculation_authority: 'CLIENT_MVP';
+  calculation_authority: 'CLIENT_MVP' | 'TRUSTED_API_V1';
   interventions: string[];
   uf_goal?: number;
   notes?: string;

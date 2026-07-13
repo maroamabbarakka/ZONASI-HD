@@ -49,6 +49,14 @@ npm run preview
 
 Unit test meliputi rumus, batas zona tepat pada 3% dan 5%, input tidak valid, dan streak Kuning.
 
+Backend tepercaya memiliki pemeriksaan terpisah:
+
+```bash
+npm install --prefix functions
+npm run build --prefix functions
+npm test --prefix functions
+```
+
 ## Batas MVP dan tahap produksi
 
 Pengguna Firebase kini memakai Firestore, sedangkan login demo tetap lokal. Sebelum penggunaan klinis, tetap diperlukan audit privasi, verifikasi klinis/SPO oleh komite terkait, pengujian rules, backup, monitoring, dan uji penerimaan pengguna.
@@ -90,7 +98,25 @@ npx firebase-tools login
 npx firebase-tools deploy --only firestore:rules,firestore:indexes
 ```
 
-Rules saat ini hanya membuka dokumen profil pengguna kepada pemiliknya (dan Admin). Seluruh data klinis tetap ditolak sampai integrasi transaksi Firestore selesai diuji.
+### Mengaktifkan trusted clinical backend
+
+Kode callable `createClinicalSession` sudah tersedia. Backend memvalidasi role dan payload, membaca berat kering terkini, menghitung nilai klinis dari presisi mentah, lalu menulis sesi, ringkasan pasien, alert deduplikatif, dan audit log dalam satu transaksi idempoten.
+
+Proyek Firebase harus memakai paket Blaze agar Cloud Build/Cloud Functions dapat diaktifkan. Lakukan aktivasi secara berurutan—jangan mengunci Rules sebelum fungsi berhasil:
+
+```bash
+firebase deploy --only functions:createClinicalSession --project zonasi-hd
+```
+
+Setelah deployment fungsi sukses:
+
+1. tambahkan `VITE_TRUSTED_BACKEND_ENABLED=true` ke `.env.local`;
+2. ganti nilai `firestore.rules` di `firebase.json` menjadi `firestore.trusted.rules`;
+3. jalankan `npm run build`;
+4. deploy `firebase deploy --only firestore:rules,hosting --project zonasi-hd`;
+5. uji satu sesi sintetis, retry dengan `submission_id` sama, alert, dan audit log.
+
+`firestore.trusted.rules` menolak browser membuat sesi/alert dan mengubah computed summary. File rules aktif saat ini sengaja tetap kompatibel dengan jalur MVP sampai Functions berhasil aktif, agar produksi tidak terputus.
 
 ## Catatan klinis
 

@@ -5,6 +5,7 @@ import {
   onSnapshot, runTransaction, serverTimestamp, setDoc, updateDoc,
   type DocumentData, type Firestore, type QueryDocumentSnapshot, type Unsubscribe,
 } from 'firebase/firestore';
+import { getFunctions, httpsCallable, type Functions } from 'firebase/functions';
 import { normalizeRole } from '../lib/permissions';
 import type { Alert, AppData, HDSession, Patient, PatientInput, SessionFormData, User } from '../types';
 import { calculateIDWG, getZone } from '../utils/zonasiCalculator';
@@ -22,11 +23,14 @@ export const firebaseEnabled = import.meta.env.VITE_FIREBASE_ENABLED === 'true' 
 export let firebaseApp: FirebaseApp | null = null;
 export let auth: Auth | null = null;
 export let db: Firestore | null = null;
+export let functions: Functions | null = null;
+export const trustedBackendEnabled = import.meta.env.VITE_TRUSTED_BACKEND_ENABLED === 'true';
 
 if (firebaseEnabled) {
   firebaseApp = initializeApp(firebaseConfig);
   auth = getAuth(firebaseApp);
   db = initializeFirestore(firebaseApp, { localCache: memoryLocalCache() });
+  functions = getFunctions(firebaseApp, 'asia-southeast2');
 }
 
 const iso = (value: unknown): string | undefined => {
@@ -45,6 +49,7 @@ const patientFromDoc = (snap: QueryDocumentSnapshot<DocumentData>): Patient => {
     latest_pre_weight: value.latest_pre_weight == null ? undefined : Number(value.latest_pre_weight),
     latest_idwg_pct: value.latest_idwg_pct == null ? undefined : Number(value.latest_idwg_pct),
     latest_zone: value.latest_zone, yellow_streak: Number(value.yellow_streak ?? 0),
+    latest_session_status: value.latest_session_status,
     risk_level: value.risk_level ?? 'low', is_active: value.is_active !== false, notes: value.notes,
     created_at: iso(value.created_at), created_by: value.created_by, updated_at: iso(value.updated_at),
   };
@@ -54,10 +59,10 @@ const sessionFromValue = (id: string, value: DocumentData): HDSession => {
   return {
     id, submission_id: String(value.submission_id ?? id), patient_id: String(value.patient_id), session_date: iso(value.session_date) ?? new Date().toISOString(),
     shift: value.shift ?? 'Pagi', pre_weight: Number(value.pre_weight), post_weight: value.post_weight == null ? undefined : Number(value.post_weight),
-    idwg_pct: Number(value.idwg_pct), zone: value.zone, interventions: value.interventions ?? [],
+    idwg_pct: Number(value.idwg_pct), idwg_raw_pct: value.idwg_raw_pct == null ? undefined : Number(value.idwg_raw_pct), zone: value.zone, interventions: value.interventions ?? [],
     dry_weight_used_kg: Number(value.dry_weight_used_kg ?? value.dry_weight_used ?? 0), dry_weight_version: Number(value.dry_weight_version ?? 1),
-    formula_version: 'IDWG_V1', threshold_version: 'ZONE_2026_V1', protocol_version: 'HD_FLUID_V1',
-    status: value.status ?? 'VERIFIED', calculation_authority: 'CLIENT_MVP',
+    formula_version: value.formula_version ?? 'IDWG_V1', threshold_version: value.threshold_version ?? 'ZONE_2026_V1', protocol_version: value.protocol_version ?? 'HD_FLUID_V1',
+    status: value.status ?? 'VERIFIED', calculation_authority: value.calculation_authority === 'TRUSTED_API_V1' ? 'TRUSTED_API_V1' : 'CLIENT_MVP',
     uf_goal: value.uf_goal == null ? undefined : Number(value.uf_goal), notes: value.notes,
     nurse_uid: String(value.nurse_uid), nurse_name: String(value.nurse_name ?? ''), created_at: iso(value.created_at) ?? new Date().toISOString(),
   };
@@ -173,6 +178,41 @@ export async function updatePatientFirestore(patientId: string, input: PatientIn
 }
 
 export async function saveSessionFirestore(patient: Patient, form: SessionFormData, user: User): Promise<HDSession> {
+  if (trustedBackendEnabled) {
+    if (!functions) throw new Error('Trusted backend belum tersedia. Silakan login ulang.');
+    try {
+      const createSession = httpsCallable<{
+        patientId: string;
+        submissionId: string;
+        preWeight: number;
+        postWeight?: number;
+        ufGoal?: number;
+        notes?: string;
+        shift: SessionFormData['shift'];
+        interventions: string[];
+      }, { session: DocumentData; idempotentReplay: boolean }>(functions, 'createClinicalSession');
+      const payload = Object.fromEntries(Object.entries({
+        patientId: patient.id,
+        submissionId: form.submission_id,
+        preWeight: form.pre_weight,
+        postWeight: form.post_weight,
+        ufGoal: form.uf_goal,
+        notes: form.notes,
+        shift: form.shift,
+        interventions: form.interventions,
+      }).filter(([, value]) => value !== undefined));
+      const result = await createSession(payload as Parameters<typeof createSession>[0]);
+      return sessionFromValue(String(result.data.session.id), result.data.session);
+    } catch (error) {
+      if (error instanceof FirebaseError) {
+        if (error.code === 'functions/unauthenticated') throw new Error('Sesi login berakhir. Silakan login kembali.');
+        if (error.code === 'functions/permission-denied') throw new Error('Anda tidak memiliki izin input sesi.');
+        if (error.code === 'functions/not-found') throw new Error('Pasien tidak ditemukan.');
+        if (error.code === 'functions/failed-precondition' || error.code === 'functions/invalid-argument') throw new Error(error.message);
+      }
+      throw new Error('Sesi belum dapat disimpan oleh server. Coba kembali; ID pengiriman yang sama akan mencegah duplikasi.');
+    }
+  }
   const { db } = requireFirebase(); const patientRef = doc(db, 'patients', patient.id); const sessionRef = doc(db, 'patients', patient.id, 'sessions', form.submission_id);
   return runTransaction(db, async (transaction) => {
     const duplicate = await transaction.get(sessionRef);

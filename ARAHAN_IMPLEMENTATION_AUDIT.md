@@ -116,6 +116,14 @@ Label `calculation_authority: CLIENT_MVP` sengaja disimpan pada sesi saat ini ag
 - emulator tests;
 - backup/restore drill.
 
+#### Status implementasi 13 Juli 2026
+
+- Selesai di kode: callable v2 `createClinicalSession`, validasi schema ketat, authorization role aktif, idempotency berbasis `submission_id`, dry-weight snapshot/version, kalkulasi presisi mentah, transaction untuk session/summary/alert/audit, dan unit test batas klinis.
+- Selesai di frontend: integrasi callable di balik `VITE_TRUSTED_BACKEND_ENABLED`; mode demo tetap memakai kalkulasi lokal berlabel `CLIENT_MVP`.
+- Siap aktivasi: `firestore.trusted.rules` menutup direct client write untuk session, computed summary, alert creation, dan audit.
+- Blokir eksternal: deployment Functions ditolak karena proyek `zonasi-hd` masih paket Spark; Cloud Build memerlukan Blaze. Karena fungsi belum aktif, flag produksi dan trusted Rules belum diaktifkan demi menjaga layanan live.
+- Belum selesai dalam P0-B: correction/void workflow, organization/unit isolation, emulator authorization matrix, backup/restore drill, dan App Check enforcement.
+
 ### P1 — Operasional unit
 
 - schedule/shift/check-in;
@@ -146,4 +154,3 @@ Label `calculation_authority: CLIENT_MVP` sengaja disimpan pada sesi saat ini ag
 - clinical, security, dan privacy sign-off;
 - UAT perawat/supervisor/dokter/pasien selesai;
 - incident runbook, monitoring, support, dan rollback aktif.
-
