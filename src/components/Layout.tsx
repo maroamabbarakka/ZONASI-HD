@@ -15,7 +15,7 @@ export function Layout() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="brand-logo brand-logo-sidebar" aria-label="ZONASI-HD — Smart Fluid Monitoring. Safe Heart."><img src="/logo-zonasi-hd.png" alt="Logo ZONASI-HD" /></div>
+        <div className="brand-logo brand-logo-sidebar" aria-label="ZONASI-HD — Smart Fluid Monitoring. Safe Heart."><img src="/logo-zonasi-hd-white.png" alt="Logo ZONASI-HD" /></div>
         <nav>{links.map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} end={to === '/'}><Icon />{label}</NavLink>)}</nav>
         <div className="sidebar-footer">
           {dataMode === 'demo' && <button className="button ghost" onClick={resetDemo}><RotateCcw /> Reset data demo</button>}

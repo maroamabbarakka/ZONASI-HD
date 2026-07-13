@@ -6,5 +6,5 @@
   "display": "standalone",
   "background_color": "#f4f8fc",
   "theme_color": "#12345b",
-  "icons": [{ "src": "/logo-zonasi-hd.png", "sizes": "1024x1024", "type": "image/png", "purpose": "any" }]
+  "icons": [{ "src": "/app-icon.png", "sizes": "1254x1254", "type": "image/png", "purpose": "any" }]
 }
