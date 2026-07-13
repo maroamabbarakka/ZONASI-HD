@@ -30,7 +30,7 @@ export function LoginPage() {
   };
 
   return <main className="login-page"><section className="login-hero">
-    <div className="brand-logo brand-logo-login" aria-label="ZONASI-HD — Smart Fluid Monitoring. Safe Heart."><img src="/logo-zonasi-hd-white.png" alt="Logo ZONASI-HD" /></div>
+    <div className="brand-logo brand-logo-login" aria-label="ZONASI-HD — Smart Fluid Monitoring. Safe Heart."><img src="/logo-zonasi-hd-color.png" alt="Logo berwarna ZONASI-HD" /></div>
     <div><span className="eyebrow light">Unit Hemodialisis</span><h1>Risiko cairan terlihat.<br />Tindakan menjadi cepat.</h1><p>Command Center visual untuk kalkulasi IDWG, triase warna, Early Warning, dan edukasi pasien.</p></div>
     <blockquote>“Cepat, Akurat, dan Selamat.”</blockquote>
   </section><section className="login-panel"><div className="login-box">
