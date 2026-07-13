@@ -1,102 +1,223 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function signedIn() {
-      return request.auth != null;
+    function signedIn() { return request.auth != null; }
+    function profile() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+    function role() { return profile().role; }
+    function normalizedRole() {
+      return role() == 'PK_II' ? 'PERAWAT' : role() == 'PK_III' ? 'SUPERVISOR' : role();
     }
-
-    function profile() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
-    }
-
-    function role() {
-      return profile().role;
-    }
-
     function isActiveUser() {
       return signedIn() && (!('is_active' in profile()) || profile().is_active == true);
     }
-
     function isMedicalUser() {
       return isActiveUser() && role() in ['PERAWAT', 'SUPERVISOR', 'DOKTER', 'ADMIN', 'PK_II', 'PK_III'];
     }
-
     function isSessionWriter() {
       return isActiveUser() && role() in ['PERAWAT', 'SUPERVISOR', 'PK_II', 'PK_III'];
     }
-
-    function isSupervisor() {
-      return isActiveUser() && role() in ['SUPERVISOR', 'PK_III'];
-    }
-
-    function isAdmin() {
-      return isActiveUser() && role() == 'ADMIN';
+    function isSupervisor() { return isActiveUser() && role() in ['SUPERVISOR', 'PK_III']; }
+    function isAdmin() { return isActiveUser() && role() == 'ADMIN'; }
+    function canHandleAlerts() {
+      return isActiveUser() && role() in ['SUPERVISOR', 'DOKTER', 'ADMIN', 'PK_III'];
     }
 
     function validPatient(data) {
-      return data.rm is string && data.rm.size() > 0
-        && data.nama is string && data.nama.size() > 0
+      return data.rm is string && data.rm.size() > 0 && data.rm.size() <= 40
+        && data.nama is string && data.nama.size() > 0 && data.nama.size() <= 160
         && data.tanggal_lahir is string
         && data.jenis_kelamin in ['L', 'P']
-        && data.bb_kering is number && data.bb_kering >= 20 && data.bb_kering <= 250;
+        && data.bb_kering is number && data.bb_kering >= 20 && data.bb_kering <= 250
+        && data.get('notes', '') is string && data.get('notes', '').size() <= 500;
+    }
+
+    function validNewPatient(data) {
+      return validPatient(data)
+        && data.keys().hasAll(['rm', 'nama', 'tanggal_lahir', 'jenis_kelamin', 'bb_kering', 'yellow_streak', 'risk_level', 'is_active', 'current_dry_weight_version', 'created_at', 'created_by', 'updated_at'])
+        && data.keys().hasOnly(['rm', 'nama', 'tanggal_lahir', 'jenis_kelamin', 'bb_kering', 'notes', 'yellow_streak', 'risk_level', 'is_active', 'current_dry_weight_version', 'created_at', 'created_by', 'updated_at'])
+        && data.yellow_streak == 0 && data.risk_level == 'low' && data.is_active == true
+        && data.current_dry_weight_version == 1
+        && data.created_by == request.auth.uid
+        && data.created_at == request.time && data.updated_at == request.time;
+    }
+
+    function validMasterPatientUpdate(next, previous) {
+      let changed = next.diff(previous).affectedKeys();
+      let previousVersion = previous.get('current_dry_weight_version', 1);
+      return validPatient(next)
+        && changed.hasOnly(['rm', 'nama', 'tanggal_lahir', 'jenis_kelamin', 'bb_kering', 'notes', 'is_active', 'current_dry_weight_version', 'updated_at'])
+        && next.updated_at == request.time
+        && (next.bb_kering == previous.bb_kering
+          ? next.current_dry_weight_version == previousVersion
+          : next.current_dry_weight_version == previousVersion + 1);
+    }
+
+    function expectedRaw(session, patient) {
+      return ((session.pre_weight - patient.bb_kering) / patient.bb_kering) * 100;
+    }
+    function expectedZone(session, patient) {
+      let raw = expectedRaw(session, patient);
+      return raw < 2.999999999 ? 'HIJAU' : raw <= 5.000000001 ? 'KUNING' : 'MERAH';
+    }
+    function expectedStreak(zone, previous) {
+      return zone == 'KUNING' ? previous.get('yellow_streak', 0) + 1 : 0;
+    }
+    function expectedRisk(zone, streak) {
+      return zone == 'MERAH' ? 'high' : streak >= 3 ? 'medium' : 'low';
+    }
+
+    function validAuditAfter(patientId, sessionId, session) {
+      let auditId = 'session_' + sessionId;
+      let audit = getAfter(/databases/$(database)/documents/audit_logs/$(auditId)).data;
+      return audit.actor_uid == request.auth.uid
+        && audit.actor_role == normalizedRole()
+        && audit.actor_unit == profile().get('unit', 'Hemodialisis')
+        && audit.action == 'CREATE_CLINICAL_SESSION'
+        && audit.resource_path == 'patients/' + patientId + '/sessions/' + sessionId
+        && audit.request_id == sessionId && audit.patient_id == patientId
+        && audit.outcome == 'SUCCESS'
+        && audit.clinical_result.zone == session.zone
+        && audit.clinical_result.idwg_pct == session.idwg_pct
+        && audit.created_at == request.time;
+    }
+
+    function validAlertAfter(patientId, sessionId, type) {
+      let alertId = sessionId + '_' + type;
+      let alert = getAfter(/databases/$(database)/documents/alerts/$(alertId)).data;
+      return alert.patient_id == patientId
+        && alert.type == type
+        && alert.trigger_session_id == sessionId
+        && alert.dedupe_key == sessionId + '_' + type
+        && alert.protocol_version == 'HD_FLUID_V1'
+        && alert.triggered_at == request.time
+        && alert.acknowledged == false;
+    }
+
+    function validSessionCreate(patientId, sessionId, session) {
+      let patient = get(/databases/$(database)/documents/patients/$(patientId)).data;
+      let summary = getAfter(/databases/$(database)/documents/patients/$(patientId)).data;
+      let raw = expectedRaw(session, patient);
+      let streak = expectedStreak(expectedZone(session, patient), patient);
+      let alertValid = expectedZone(session, patient) == 'MERAH'
+        ? validAlertAfter(patientId, sessionId, 'RECENT_RED')
+        : expectedZone(session, patient) == 'KUNING' && streak == 3
+          ? validAlertAfter(patientId, sessionId, 'YELLOW_STREAK_3')
+          : true;
+      return patient.is_active != false
+        && session.keys().hasAll(['id', 'submission_id', 'patient_id', 'session_date', 'shift', 'pre_weight', 'idwg_raw_pct', 'idwg_pct', 'zone', 'dry_weight_used_kg', 'dry_weight_version', 'formula_version', 'threshold_version', 'protocol_version', 'status', 'calculation_authority', 'interventions', 'nurse_uid', 'nurse_name', 'created_at'])
+        && session.keys().hasOnly(['id', 'submission_id', 'patient_id', 'session_date', 'shift', 'pre_weight', 'post_weight', 'idwg_raw_pct', 'idwg_pct', 'zone', 'dry_weight_used_kg', 'dry_weight_version', 'formula_version', 'threshold_version', 'protocol_version', 'status', 'calculation_authority', 'interventions', 'uf_goal', 'notes', 'nurse_uid', 'nurse_name', 'created_at'])
+        && session.id == sessionId && session.submission_id == sessionId && session.patient_id == patientId
+        && session.session_date == request.time && session.created_at == request.time
+        && session.shift in ['Pagi', 'Siang', 'Sore', 'Malam']
+        && session.pre_weight is number && session.pre_weight >= 20 && session.pre_weight <= 250
+        && session.get('post_weight', 20) is number && session.get('post_weight', 20) >= 20 && session.get('post_weight', 20) <= 250
+        && session.get('uf_goal', 0) is number && session.get('uf_goal', 0) >= 0 && session.get('uf_goal', 0) <= 20
+        && session.get('notes', '') is string && session.get('notes', '').size() <= 500
+        && session.interventions is list && session.interventions.size() <= 20
+        && session.dry_weight_used_kg == patient.bb_kering
+        && session.dry_weight_version == patient.get('current_dry_weight_version', 1)
+        && session.idwg_raw_pct is number
+        && math.abs(session.idwg_raw_pct - raw) <= 0.000001
+        && session.idwg_pct == math.round(raw * 10) / 10.0
+        && session.zone == expectedZone(session, patient)
+        && session.formula_version == 'IDWG_V1'
+        && session.threshold_version == 'ZONE_2026_V1'
+        && session.protocol_version == 'HD_FLUID_V1'
+        && session.status == 'RECORDED'
+        && session.calculation_authority == 'RULES_VERIFIED_CLIENT_V1'
+        && session.nurse_uid == request.auth.uid
+        && session.nurse_name == profile().displayName
+        && summary.latest_session_id == sessionId
+        && summary.latest_session_date == request.time
+        && validAuditAfter(patientId, sessionId, session)
+        && alertValid;
+    }
+
+    function validClinicalSummary(patientId, next, previous) {
+      let session = getAfter(/databases/$(database)/documents/patients/$(patientId)/sessions/$(next.latest_session_id)).data;
+      let streak = expectedStreak(session.zone, previous);
+      return next.diff(previous).affectedKeys().hasOnly(['latest_session_id', 'latest_session_date', 'latest_session_status', 'latest_pre_weight', 'latest_idwg_pct', 'latest_zone', 'yellow_streak', 'risk_level', 'updated_at'])
+        && next.latest_session_id is string
+        && next.latest_session_id != previous.get('latest_session_id', '')
+        && session.created_at == request.time
+        && session.patient_id == patientId
+        && next.latest_session_date == session.session_date
+        && next.latest_session_status == 'RECORDED'
+        && next.latest_pre_weight == session.pre_weight
+        && next.latest_idwg_pct == session.idwg_pct
+        && next.latest_zone == session.zone
+        && next.yellow_streak == streak
+        && next.risk_level == expectedRisk(session.zone, streak)
+        && next.updated_at == request.time;
+    }
+
+    function validAlertCreate(alertId, alert) {
+      let session = getAfter(/databases/$(database)/documents/patients/$(alert.patient_id)/sessions/$(alert.trigger_session_id)).data;
+      let patient = getAfter(/databases/$(database)/documents/patients/$(alert.patient_id)).data;
+      return session.created_at == request.time
+        && alert.keys().hasAll(['patient_id', 'patient_name', 'type', 'status', 'severity', 'trigger_session_id', 'dedupe_key', 'protocol_version', 'triggered_at', 'acknowledged', 'message'])
+        && alert.keys().hasOnly(['patient_id', 'patient_name', 'type', 'status', 'severity', 'trigger_session_id', 'dedupe_key', 'protocol_version', 'triggered_at', 'acknowledged', 'message'])
+        && alert.patient_name == patient.nama
+        && alert.message is string && alert.message.size() > 0 && alert.message.size() <= 300
+        && alert.status == 'OPEN' && alert.acknowledged == false
+        && alert.protocol_version == 'HD_FLUID_V1' && alert.triggered_at == request.time
+        && alert.dedupe_key == alertId && alertId == alert.trigger_session_id + '_' + alert.type
+        && ((alert.type == 'RECENT_RED' && alert.severity == 'HIGH' && session.zone == 'MERAH')
+          || (alert.type == 'YELLOW_STREAK_3' && alert.severity == 'MEDIUM' && session.zone == 'KUNING' && patient.yellow_streak == 3));
+    }
+
+    function validAuditCreate(auditId, audit) {
+      let session = getAfter(/databases/$(database)/documents/patients/$(audit.patient_id)/sessions/$(audit.request_id)).data;
+      return session.created_at == request.time
+        && auditId == 'session_' + audit.request_id
+        && audit.keys().hasAll(['actor_uid', 'actor_role', 'actor_unit', 'action', 'resource_path', 'request_id', 'patient_id', 'outcome', 'clinical_result', 'created_at'])
+        && audit.keys().hasOnly(['actor_uid', 'actor_role', 'actor_unit', 'action', 'resource_path', 'request_id', 'patient_id', 'outcome', 'clinical_result', 'created_at'])
+        && audit.actor_uid == request.auth.uid && audit.actor_role == normalizedRole()
+        && audit.actor_unit == profile().get('unit', 'Hemodialisis')
+        && audit.action == 'CREATE_CLINICAL_SESSION' && audit.outcome == 'SUCCESS'
+        && audit.resource_path == 'patients/' + audit.patient_id + '/sessions/' + audit.request_id
+        && audit.clinical_result.zone == session.zone && audit.clinical_result.idwg_pct == session.idwg_pct
+        && audit.created_at == request.time;
     }
 
     match /users/{userId} {
       allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
       allow create, update, delete: if isAdmin();
     }
-
     match /patient_keys/{rmKey} {
       allow read: if isSupervisor() || isAdmin();
       allow create, update, delete: if isSupervisor() || isAdmin();
     }
-
     match /patients/{patientId} {
       allow read: if isMedicalUser();
-      allow create: if (isSupervisor() || isAdmin()) && validPatient(request.resource.data);
-      allow update: if (
-        (isSupervisor() || isAdmin()) && validPatient(request.resource.data)
-      ) || (
-        isSessionWriter()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'latest_session_date', 'latest_pre_weight', 'latest_idwg_pct',
-          'latest_zone', 'yellow_streak', 'risk_level', 'updated_at'
-        ])
-      );
+      allow create: if (isSupervisor() || isAdmin()) && validNewPatient(request.resource.data);
+      allow update: if ((isSupervisor() || isAdmin()) && validMasterPatientUpdate(request.resource.data, resource.data))
+        || (isSessionWriter() && validClinicalSummary(patientId, request.resource.data, resource.data));
       allow delete: if isAdmin();
-
       match /sessions/{sessionId} {
         allow read: if isMedicalUser();
-        allow create: if isSessionWriter()
-          && request.resource.data.patient_id == patientId
-          && request.resource.data.submission_id == sessionId
-          && request.resource.data.nurse_uid == request.auth.uid
-          && request.resource.data.pre_weight is number
-          && request.resource.data.idwg_pct is number
-          && request.resource.data.zone in ['HIJAU', 'KUNING', 'MERAH']
-          && request.resource.data.dry_weight_used_kg == get(/databases/$(database)/documents/patients/$(patientId)).data.bb_kering
-          && request.resource.data.formula_version == 'IDWG_V1'
-          && request.resource.data.threshold_version == 'ZONE_2026_V1'
-          && request.resource.data.status == 'VERIFIED'
-          && request.resource.data.calculation_authority == 'CLIENT_MVP';
+        allow create: if isSessionWriter() && validSessionCreate(patientId, sessionId, request.resource.data);
         allow update, delete: if false;
       }
     }
-
     match /alerts/{alertId} {
       allow read: if isMedicalUser();
-      allow create: if isSessionWriter()
-        && request.resource.data.type in ['YELLOW_STREAK_3', 'RECENT_RED']
-        && request.resource.data.acknowledged == false;
-      allow update: if (isSupervisor() || role() == 'DOKTER' || isAdmin())
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'acknowledged', 'acknowledged_by', 'acknowledged_at'
-        ]);
+      allow create: if isSessionWriter() && validAlertCreate(alertId, request.resource.data);
+      allow update: if canHandleAlerts()
+        && resource.data.acknowledged == false && request.resource.data.acknowledged == true
+        && request.resource.data.acknowledged_by == profile().displayName
+        && request.resource.data.acknowledged_at == request.time
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['acknowledged', 'acknowledged_by', 'acknowledged_at']);
       allow delete: if isAdmin();
     }
-
-    match /{document=**} {
-      allow read, write: if false;
+    match /audit_logs/{auditId} {
+      allow read: if isAdmin();
+      allow create: if isSessionWriter() && validAuditCreate(auditId, request.resource.data);
+      allow update, delete: if false;
     }
+    match /{path=**}/sessions/{sessionId} {
+      allow read: if isMedicalUser();
+    }
+    match /{document=**} { allow read, write: if false; }
   }
 }

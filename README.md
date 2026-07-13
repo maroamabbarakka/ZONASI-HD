@@ -43,11 +43,12 @@ Buka `http://localhost:5173`. Pilih peran pada halaman login. Tombol **Reset dat
 ```bash
 npm run typecheck
 npm test
+npm run test:rules:emulator
 npm run build
 npm run preview
 ```
 
-Unit test meliputi rumus, batas zona tepat pada 3% dan 5%, input tidak valid, dan streak Kuning.
+Unit test meliputi rumus, batas zona tepat pada 3% dan 5%, input tidak valid, streak Kuning, serta matriks izin transaksi pada Firestore Emulator.
 
 Backend tepercaya memiliki pemeriksaan terpisah:
 
@@ -98,14 +99,30 @@ npx firebase-tools login
 npx firebase-tools deploy --only firestore:rules,firestore:indexes
 ```
 
-### Mengaktifkan trusted clinical backend
+### Arsitektur aktif pada paket Spark
+
+Penyimpanan sesi menggunakan satu transaksi atomik yang berisi sesi, materialized summary pasien, alert deterministik bila diperlukan, dan audit log. Firestore Rules menghitung ulang zona dari input berat dan berat kering tersimpan, memeriksa nilai IDWG, version snapshot, role, timestamp server, serta konsistensi seluruh dokumen dengan `getAfter()`.
+
+Data Firebase memakai `calculation_authority: RULES_VERIFIED_CLIENT_V1` dan status awal `RECORDED`. Ini lebih kuat daripada validasi UI, tetapi tetap bukan backend server tepercaya.
+
+App Check reCAPTCHA Enterprise telah disiapkan secara opsional. Untuk mengaktifkannya:
+
+1. daftarkan aplikasi Web di **Firebase Console → App Check**;
+2. masukkan site key ke `VITE_FIREBASE_APPCHECK_SITE_KEY` pada `.env.local`;
+3. build dan deploy Hosting;
+4. pantau metrik request terverifikasi terlebih dahulu;
+5. aktifkan enforcement Cloud Firestore setelah semua perangkat operasional terverifikasi.
+
+Jangan mengaktifkan enforcement sebelum site key terpasang pada build produksi karena seluruh request lama akan ditolak.
+
+### Opsi upgrade trusted clinical backend
 
 Kode callable `createClinicalSession` sudah tersedia. Backend memvalidasi role dan payload, membaca berat kering terkini, menghitung nilai klinis dari presisi mentah, lalu menulis sesi, ringkasan pasien, alert deduplikatif, dan audit log dalam satu transaksi idempoten.
 
 Proyek Firebase harus memakai paket Blaze agar Cloud Build/Cloud Functions dapat diaktifkan. Lakukan aktivasi secara berurutan—jangan mengunci Rules sebelum fungsi berhasil:
 
 ```bash
-firebase deploy --only functions:createClinicalSession --project zonasi-hd
+firebase deploy --config firebase.functions.json --only functions:createClinicalSession --project zonasi-hd
 ```
 
 Setelah deployment fungsi sukses:
@@ -116,7 +133,7 @@ Setelah deployment fungsi sukses:
 4. deploy `firebase deploy --only firestore:rules,hosting --project zonasi-hd`;
 5. uji satu sesi sintetis, retry dengan `submission_id` sama, alert, dan audit log.
 
-`firestore.trusted.rules` menolak browser membuat sesi/alert dan mengubah computed summary. File rules aktif saat ini sengaja tetap kompatibel dengan jalur MVP sampai Functions berhasil aktif, agar produksi tidak terputus.
+`firestore.trusted.rules` menolak browser membuat sesi/alert dan mengubah computed summary. Gunakan file tersebut hanya setelah Functions berhasil aktif. Rules utama saat ini adalah rules-verified transaction untuk paket Spark.
 
 ## Catatan klinis
 

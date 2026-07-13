@@ -28,7 +28,7 @@ export function calculateClinicalIDWG(preWeight: number, dryWeight: number) {
   }
   const raw = ((preWeight - dryWeight) / dryWeight) * 100;
   const display = Math.round(raw * 10) / 10;
-  const zone: Zone = raw < 3 ? 'HIJAU' : raw <= 5 ? 'KUNING' : 'MERAH';
+  const zone: Zone = raw < 3 - 1e-9 ? 'HIJAU' : raw <= 5 + 1e-9 ? 'KUNING' : 'MERAH';
   return { raw, display, zone };
 }
 

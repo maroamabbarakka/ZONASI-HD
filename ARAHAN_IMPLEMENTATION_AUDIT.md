@@ -124,6 +124,15 @@ Label `calculation_authority: CLIENT_MVP` sengaja disimpan pada sesi saat ini ag
 - Blokir eksternal: deployment Functions ditolak karena proyek `zonasi-hd` masih paket Spark; Cloud Build memerlukan Blaze. Karena fungsi belum aktif, flag produksi dan trusted Rules belum diaktifkan demi menjaga layanan live.
 - Belum selesai dalam P0-B: correction/void workflow, organization/unit isolation, emulator authorization matrix, backup/restore drill, dan App Check enforcement.
 
+#### Jalur Spark tanpa Functions
+
+- Transaksi browser kini wajib menulis session, patient summary, alert deterministik, dan audit log secara atomik.
+- Firestore Rules menghitung ulang IDWG/zona dari input dan dry-weight tersimpan, memvalidasi snapshot/version, timestamp server, role, summary, alert, dan audit memakai `getAfter()`.
+- Authority sesi Spark adalah `RULES_VERIFIED_CLIENT_V1` dengan status awal `RECORDED`; label ini sengaja dibedakan dari trusted backend.
+- Matriks Firestore Emulator mencakup transaksi Merah valid, streak Kuning ke-3, manipulasi zona, audit hilang, role tanpa izin, dan acknowledgement.
+- App Check Web siap melalui konfigurasi environment, tetapi enforcement menunggu site key dan observasi traffic produksi.
+- Rules-verified transaction dan Hosting telah dideploy pada proyek Spark `zonasi-hd` tanggal 13 Juli 2026.
+
 ### P1 — Operasional unit
 
 - schedule/shift/check-in;

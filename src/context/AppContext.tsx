@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { createDemoData } from '../data/demoData';
 import type { Alert, AppData, DataMode, HDSession, Patient, PatientInput, SessionFormData, User, UserRole } from '../types';
-import { calculateIDWG, calculateYellowStreak, getZone } from '../utils/zonasiCalculator';
+import { calculateIDWG, calculateIDWGRaw, calculateYellowStreak, getZone } from '../utils/zonasiCalculator';
 import { normalizeRole } from '../lib/permissions';
 
 const DATA_KEY = 'zonasi-hd-demo-data-v1';
@@ -116,7 +116,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const existing = data.sessions.find((item) => item.patient_id === patient.id && item.submission_id === form.submission_id);
     if (existing) return existing;
     const idwgPct = calculateIDWG(form.pre_weight, patient.bb_kering);
-    const zone = getZone(idwgPct);
+    const zone = getZone(calculateIDWGRaw(form.pre_weight, patient.bb_kering));
     const now = new Date().toISOString();
     const session: HDSession = {
       id: form.submission_id, submission_id: form.submission_id, patient_id: patient.id, session_date: now,

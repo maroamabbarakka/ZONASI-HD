@@ -100,6 +100,7 @@ export const createClinicalSession = onCall({
 
       transaction.create(sessionRef, session);
       transaction.update(patientRef, {
+        latest_session_id: input.submissionId,
         latest_session_date: now,
         latest_session_status: 'RECORDED',
         latest_pre_weight: input.preWeight,

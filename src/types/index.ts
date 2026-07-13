@@ -18,6 +18,7 @@ export interface Patient {
   jenis_kelamin: 'L' | 'P';
   bb_kering: number;
   latest_session_date?: string;
+  latest_session_id?: string;
   latest_pre_weight?: number;
   latest_idwg_pct?: number;
   latest_zone?: Zone;
@@ -63,7 +64,7 @@ export interface HDSession {
   threshold_version: 'ZONE_2026_V1';
   protocol_version: 'HD_FLUID_V1';
   status: SessionStatus;
-  calculation_authority: 'CLIENT_MVP' | 'TRUSTED_API_V1';
+  calculation_authority: 'CLIENT_MVP' | 'RULES_VERIFIED_CLIENT_V1' | 'TRUSTED_API_V1';
   interventions: string[];
   uf_goal?: number;
   notes?: string;

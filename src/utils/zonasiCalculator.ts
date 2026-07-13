@@ -12,6 +12,11 @@ import type { Zone } from '../types';
  * IDWG % = ((BB Pre-HD - BB Kering) / BB Kering) × 100
  */
 export function calculateIDWG(preHDWeight: number, dryWeight: number): number {
+  return Math.round(calculateIDWGRaw(preHDWeight, dryWeight) * 10) / 10;
+}
+
+/** Nilai presisi penuh untuk penentuan zona dan validasi Rules. */
+export function calculateIDWGRaw(preHDWeight: number, dryWeight: number): number {
   if (!Number.isFinite(dryWeight) || dryWeight <= 0) {
     throw new Error('Berat badan kering (Dry Weight) harus lebih dari 0 kg');
   }
@@ -20,8 +25,7 @@ export function calculateIDWG(preHDWeight: number, dryWeight: number): number {
   }
 
   const idwg = ((preHDWeight - dryWeight) / dryWeight) * 100;
-  // Bulatkan ke 1 desimal (standar klinis)
-  return Math.round(idwg * 10) / 10;
+  return idwg;
 }
 
 /**
@@ -29,8 +33,9 @@ export function calculateIDWG(preHDWeight: number, dryWeight: number): number {
  */
 export function getZone(idwgPct: number): Zone {
   if (!Number.isFinite(idwgPct)) throw new Error('Nilai IDWG tidak valid');
-  if (idwgPct < 3) return 'HIJAU';
-  if (idwgPct <= 5) return 'KUNING';
+  const boundaryTolerance = 1e-9;
+  if (idwgPct < 3 - boundaryTolerance) return 'HIJAU';
+  if (idwgPct <= 5 + boundaryTolerance) return 'KUNING';
   return 'MERAH';
 }
 

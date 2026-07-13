@@ -3,15 +3,16 @@ import { useMemo, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import type { Patient, SessionFormData, UserRole, Zone } from '../../types';
-import { calculateIDWG, getQuickRecommendations, getZone, getZoneDescription } from '../../utils/zonasiCalculator';
+import { calculateIDWG, calculateIDWGRaw, getQuickRecommendations, getZone, getZoneDescription } from '../../utils/zonasiCalculator';
 import ZoneBadge from '../ui/ZoneBadge';
 import { ProtocolChecklist } from '../features/ProtocolChecklist';
 
-const optionalNumber = z.number().positive().max(250).optional();
+const optionalWeight = z.number().min(20, 'Nilai terlalu rendah').max(250, 'Nilai terlalu tinggi').optional();
+const optionalUfGoal = z.number().min(0, 'Tidak boleh negatif').max(20, 'Maksimal 20 liter').optional();
 const schema = z.object({
   pre_weight: z.number({ error: 'BB Pre-HD wajib diisi' }).positive().min(20, 'Nilai terlalu rendah').max(250, 'Nilai terlalu tinggi'),
-  post_weight: optionalNumber,
-  uf_goal: optionalNumber,
+  post_weight: optionalWeight,
+  uf_goal: optionalUfGoal,
   notes: z.string().max(500, 'Maksimal 500 karakter').optional(),
   shift: z.enum(['Pagi', 'Siang', 'Sore', 'Malam']),
 });
@@ -28,7 +29,7 @@ export function SessionInputForm({ patient, role, onSave, onCancel }: { patient:
   const calculation = useMemo(() => {
     try {
       const idwg = calculateIDWG(preWeight, patient.bb_kering);
-      return { idwg, zone: getZone(idwg) };
+      return { idwg, zone: getZone(calculateIDWGRaw(preWeight, patient.bb_kering)) };
     } catch { return null; }
   }, [preWeight, patient.bb_kering]);
   const submit = async (values: Values) => { setSaveError(''); try { await onSave({ ...values, interventions, submission_id: submissionId.current }); } catch (error) { setSaveError(error instanceof Error ? error.message : 'Sesi gagal disimpan.'); } };

@@ -6,9 +6,10 @@ import {
   type DocumentData, type Firestore, type QueryDocumentSnapshot, type Unsubscribe,
 } from 'firebase/firestore';
 import { getFunctions, httpsCallable, type Functions } from 'firebase/functions';
+import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check';
 import { normalizeRole } from '../lib/permissions';
 import type { Alert, AppData, HDSession, Patient, PatientInput, SessionFormData, User } from '../types';
-import { calculateIDWG, getZone } from '../utils/zonasiCalculator';
+import { calculateIDWG, calculateIDWGRaw, getZone } from '../utils/zonasiCalculator';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -29,6 +30,11 @@ export const trustedBackendEnabled = import.meta.env.VITE_TRUSTED_BACKEND_ENABLE
 if (firebaseEnabled) {
   firebaseApp = initializeApp(firebaseConfig);
   auth = getAuth(firebaseApp);
+  const appCheckSiteKey = import.meta.env.VITE_FIREBASE_APPCHECK_SITE_KEY;
+  if (appCheckSiteKey) initializeAppCheck(firebaseApp, {
+    provider: new ReCaptchaEnterpriseProvider(appCheckSiteKey),
+    isTokenAutoRefreshEnabled: true,
+  });
   db = initializeFirestore(firebaseApp, { localCache: memoryLocalCache() });
   functions = getFunctions(firebaseApp, 'asia-southeast2');
 }
@@ -45,7 +51,7 @@ const patientFromDoc = (snap: QueryDocumentSnapshot<DocumentData>): Patient => {
   return {
     id: snap.id, rm: String(value.rm ?? ''), nama: String(value.nama ?? ''),
     tanggal_lahir: String(value.tanggal_lahir ?? ''), jenis_kelamin: value.jenis_kelamin === 'P' ? 'P' : 'L',
-    bb_kering: Number(value.bb_kering ?? 0), latest_session_date: iso(value.latest_session_date),
+    bb_kering: Number(value.bb_kering ?? 0), latest_session_date: iso(value.latest_session_date), latest_session_id: value.latest_session_id,
     latest_pre_weight: value.latest_pre_weight == null ? undefined : Number(value.latest_pre_weight),
     latest_idwg_pct: value.latest_idwg_pct == null ? undefined : Number(value.latest_idwg_pct),
     latest_zone: value.latest_zone, yellow_streak: Number(value.yellow_streak ?? 0),
@@ -62,7 +68,7 @@ const sessionFromValue = (id: string, value: DocumentData): HDSession => {
     idwg_pct: Number(value.idwg_pct), idwg_raw_pct: value.idwg_raw_pct == null ? undefined : Number(value.idwg_raw_pct), zone: value.zone, interventions: value.interventions ?? [],
     dry_weight_used_kg: Number(value.dry_weight_used_kg ?? value.dry_weight_used ?? 0), dry_weight_version: Number(value.dry_weight_version ?? 1),
     formula_version: value.formula_version ?? 'IDWG_V1', threshold_version: value.threshold_version ?? 'ZONE_2026_V1', protocol_version: value.protocol_version ?? 'HD_FLUID_V1',
-    status: value.status ?? 'VERIFIED', calculation_authority: value.calculation_authority === 'TRUSTED_API_V1' ? 'TRUSTED_API_V1' : 'CLIENT_MVP',
+    status: value.status ?? 'VERIFIED', calculation_authority: value.calculation_authority === 'TRUSTED_API_V1' ? 'TRUSTED_API_V1' : value.calculation_authority === 'RULES_VERIFIED_CLIENT_V1' ? 'RULES_VERIFIED_CLIENT_V1' : 'CLIENT_MVP',
     uf_goal: value.uf_goal == null ? undefined : Number(value.uf_goal), notes: value.notes,
     nurse_uid: String(value.nurse_uid), nurse_name: String(value.nurse_name ?? ''), created_at: iso(value.created_at) ?? new Date().toISOString(),
   };
@@ -150,6 +156,7 @@ export function subscribeClinicalData(onData: (data: AppData) => void, onError: 
 }
 
 export function normalizeRM(value: string): string { return value.trim().toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+const withoutUndefined = <T extends object>(value: T): Partial<T> => Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as Partial<T>;
 
 export async function createPatientFirestore(input: PatientInput): Promise<Patient> {
   const { auth, db } = requireFirebase(); const rmKey = normalizeRM(input.rm);
@@ -159,7 +166,7 @@ export async function createPatientFirestore(input: PatientInput): Promise<Patie
   await runTransaction(db, async (transaction) => {
     if ((await transaction.get(keyRef)).exists()) throw new Error(`Nomor RM ${input.rm} sudah digunakan.`);
     transaction.set(keyRef, { patient_id: patientRef.id, rm: input.rm.trim(), created_at: serverTimestamp() });
-    transaction.set(patientRef, { ...input, rm: input.rm.trim(), nama: input.nama.trim(), yellow_streak: 0, risk_level: 'low', is_active: true, created_at: serverTimestamp(), created_by: currentUid, updated_at: serverTimestamp() });
+    transaction.set(patientRef, { ...withoutUndefined(input), rm: input.rm.trim(), nama: input.nama.trim(), yellow_streak: 0, risk_level: 'low', is_active: true, current_dry_weight_version: 1, created_at: serverTimestamp(), created_by: currentUid, updated_at: serverTimestamp() });
   });
   return { id: patientRef.id, ...input, rm: input.rm.trim(), nama: input.nama.trim(), yellow_streak: 0, risk_level: 'low', is_active: true, created_at: now, created_by: currentUid };
 }
@@ -173,7 +180,9 @@ export async function updatePatientFirestore(patientId: string, input: PatientIn
       const nextKeyRef = doc(db, 'patient_keys', newKey); if ((await transaction.get(nextKeyRef)).exists()) throw new Error(`Nomor RM ${input.rm} sudah digunakan.`);
       transaction.delete(doc(db, 'patient_keys', oldKey)); transaction.set(nextKeyRef, { patient_id: patientId, rm: input.rm.trim(), created_at: serverTimestamp() });
     }
-    transaction.update(patientRef, { ...input, rm: input.rm.trim(), nama: input.nama.trim(), updated_at: serverTimestamp() });
+    const previousWeight = Number(current.data().bb_kering);
+    const previousVersion = Number(current.data().current_dry_weight_version ?? 1);
+    transaction.update(patientRef, { ...withoutUndefined(input), rm: input.rm.trim(), nama: input.nama.trim(), current_dry_weight_version: input.bb_kering === previousWeight ? previousVersion : previousVersion + 1, updated_at: serverTimestamp() });
   });
 }
 
@@ -220,15 +229,17 @@ export async function saveSessionFirestore(patient: Patient, form: SessionFormDa
     const current = await transaction.get(patientRef); if (!current.exists()) throw new Error('Pasien tidak ditemukan.');
     if (current.data().is_active === false) throw new Error('Pasien nonaktif tidak dapat memiliki sesi baru.');
     const dryWeight = Number(current.data().bb_kering); const dryWeightVersion = Number(current.data().current_dry_weight_version ?? 1);
-    const idwg = calculateIDWG(form.pre_weight, dryWeight); const zone = getZone(idwg); const now = new Date().toISOString();
-    const session: HDSession = { id: sessionRef.id, submission_id: form.submission_id, patient_id: patient.id, session_date: now, shift: form.shift, pre_weight: form.pre_weight, post_weight: form.post_weight, idwg_pct: idwg, zone, dry_weight_used_kg: dryWeight, dry_weight_version: dryWeightVersion, formula_version: 'IDWG_V1', threshold_version: 'ZONE_2026_V1', protocol_version: 'HD_FLUID_V1', status: 'VERIFIED', calculation_authority: 'CLIENT_MVP', interventions: form.interventions, uf_goal: form.uf_goal, notes: form.notes, nurse_uid: user.uid, nurse_name: user.displayName, created_at: now };
+    const idwgRaw = calculateIDWGRaw(form.pre_weight, dryWeight); const idwg = calculateIDWG(form.pre_weight, dryWeight); const zone = getZone(idwgRaw); const now = new Date().toISOString();
+    const session: HDSession = { id: sessionRef.id, submission_id: form.submission_id, patient_id: patient.id, session_date: now, shift: form.shift, pre_weight: form.pre_weight, post_weight: form.post_weight, idwg_raw_pct: idwgRaw, idwg_pct: idwg, zone, dry_weight_used_kg: dryWeight, dry_weight_version: dryWeightVersion, formula_version: 'IDWG_V1', threshold_version: 'ZONE_2026_V1', protocol_version: 'HD_FLUID_V1', status: 'RECORDED', calculation_authority: 'RULES_VERIFIED_CLIENT_V1', interventions: form.interventions, uf_goal: form.uf_goal, notes: form.notes, nurse_uid: user.uid, nurse_name: user.displayName, created_at: now };
     const yellowStreak = zone === 'KUNING' ? Number(current.data().yellow_streak ?? 0) + 1 : 0;
     const storedSession = Object.fromEntries(Object.entries(session).filter(([, value]) => value !== undefined));
     transaction.set(sessionRef, { ...storedSession, session_date: serverTimestamp(), created_at: serverTimestamp() });
-    transaction.update(patientRef, { latest_session_date: serverTimestamp(), latest_pre_weight: form.pre_weight, latest_idwg_pct: idwg, latest_zone: zone, yellow_streak: yellowStreak, risk_level: zone === 'MERAH' ? 'high' : yellowStreak >= 3 ? 'medium' : 'low', updated_at: serverTimestamp() });
+    transaction.update(patientRef, { latest_session_id: form.submission_id, latest_session_date: serverTimestamp(), latest_session_status: 'RECORDED', latest_pre_weight: form.pre_weight, latest_idwg_pct: idwg, latest_zone: zone, yellow_streak: yellowStreak, risk_level: zone === 'MERAH' ? 'high' : yellowStreak >= 3 ? 'medium' : 'low', updated_at: serverTimestamp() });
     if (yellowStreak === 3 || zone === 'MERAH') {
-      const alertRef = doc(collection(db, 'alerts')); transaction.set(alertRef, { patient_id: patient.id, patient_name: patient.nama, type: zone === 'MERAH' ? 'RECENT_RED' : 'YELLOW_STREAK_3', triggered_at: serverTimestamp(), acknowledged: false, message: zone === 'MERAH' ? `${patient.nama} baru tercatat di Zona Merah (${idwg.toFixed(1)}%).` : `${patient.nama} berada di Zona Kuning selama 3 sesi berturut-turut.` });
+      const alertType = zone === 'MERAH' ? 'RECENT_RED' : 'YELLOW_STREAK_3';
+      const alertRef = doc(db, 'alerts', `${form.submission_id}_${alertType}`); transaction.set(alertRef, { patient_id: patient.id, patient_name: String(current.data().nama), type: alertType, status: 'OPEN', severity: zone === 'MERAH' ? 'HIGH' : 'MEDIUM', trigger_session_id: form.submission_id, dedupe_key: `${form.submission_id}_${alertType}`, protocol_version: 'HD_FLUID_V1', triggered_at: serverTimestamp(), acknowledged: false, message: zone === 'MERAH' ? `${String(current.data().nama)} baru tercatat di Zona Merah (${idwg.toFixed(1)}%).` : `${String(current.data().nama)} berada di Zona Kuning selama 3 sesi berturut-turut.` });
     }
+    transaction.set(doc(db, 'audit_logs', `session_${form.submission_id}`), { actor_uid: user.uid, actor_role: user.role, actor_unit: user.unit, action: 'CREATE_CLINICAL_SESSION', resource_path: sessionRef.path, request_id: form.submission_id, patient_id: patient.id, outcome: 'SUCCESS', clinical_result: { zone, idwg_pct: idwg }, created_at: serverTimestamp() });
     return session;
   });
 }
