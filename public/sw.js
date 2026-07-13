@@ -1,5 +1,5 @@
-const CACHE = 'zonasi-hd-shell-v1';
-const SHELL = ['/', '/manifest.webmanifest', '/zonasi-icon.svg'];
+const CACHE = 'zonasi-hd-shell-v2';
+const SHELL = ['/', '/manifest.webmanifest', '/logo-zonasi-hd.png'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)));

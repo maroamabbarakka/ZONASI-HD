@@ -1,4 +1,4 @@
-import { Activity, FileChartColumn, HeartPulse, LogOut, RotateCcw, ShieldCheck, Users } from 'lucide-react';
+import { Activity, FileChartColumn, LogOut, RotateCcw, ShieldCheck, Users } from 'lucide-react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 
@@ -13,7 +13,7 @@ export function Layout() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="brand"><span className="brand-mark"><HeartPulse /></span><div><strong>ZONASI-HD</strong><small>Command Center</small></div></div>
+        <div className="brand-logo brand-logo-sidebar" aria-label="ZONASI-HD — Smart Fluid Monitoring. Safe Heart."><img src="/logo-zonasi-hd.png" alt="Logo ZONASI-HD" /></div>
         <nav>{links.map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} end={to === '/'}><Icon />{label}</NavLink>)}</nav>
         <div className="sidebar-footer">
           <button className="button ghost" onClick={resetDemo}><RotateCcw /> Reset data demo</button>
