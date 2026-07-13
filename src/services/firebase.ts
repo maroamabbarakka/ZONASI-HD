@@ -7,6 +7,7 @@ import {
 } from 'firebase/firestore';
 import { getFunctions, httpsCallable, type Functions } from 'firebase/functions';
 import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check';
+import { buildFirebaseAuthEmail, normalizeAuthIdentifier } from '../lib/authIdentifier';
 import { normalizeRole } from '../lib/permissions';
 import type { Alert, AppData, HDSession, Patient, PatientInput, SessionFormData, User } from '../types';
 import { calculateIDWG, calculateIDWGRaw, getZone } from '../utils/zonasiCalculator';
@@ -26,6 +27,7 @@ export let auth: Auth | null = null;
 export let db: Firestore | null = null;
 export let functions: Functions | null = null;
 export const trustedBackendEnabled = import.meta.env.VITE_TRUSTED_BACKEND_ENABLED === 'true';
+const authUsernameDomain = import.meta.env.VITE_AUTH_USERNAME_DOMAIN ?? 'zonasi-hd.local';
 
 if (firebaseEnabled) {
   firebaseApp = initializeApp(firebaseConfig);
@@ -86,35 +88,37 @@ const alertFromDoc = (snap: QueryDocumentSnapshot<DocumentData>): Alert => {
 };
 
 function requireFirebase() {
-  if (!auth || !db || !auth.currentUser) throw new Error('Sesi Firebase belum siap. Silakan login ulang.');
+  if (!auth || !db || !auth.currentUser) throw new Error('Sesi akun belum siap. Silakan masuk ulang.');
   return { auth, db };
 }
 
 async function userProfile(firebaseUser: FirebaseUser, fallbackEmail = ''): Promise<User> {
-  if (!db) throw new Error('Firestore belum tersedia.');
+  if (!db) throw new Error('Layanan data belum siap.');
   const profile = await getDoc(doc(db, 'users', firebaseUser.uid));
   if (!profile.exists()) throw new Error('Profil pengguna belum dibuat pada collection users.');
   const value = profile.data();
   if (value.is_active === false) throw new Error('Akun pengguna telah dinonaktifkan. Hubungi administrator unit.');
   const role = normalizeRole(value.role);
-  if (!role) throw new Error('Role pengguna tidak valid.');
-  return { uid: firebaseUser.uid, email: firebaseUser.email ?? fallbackEmail, displayName: String(value.displayName || firebaseUser.displayName || fallbackEmail), role, unit: String(value.unit || 'Hemodialisis') };
+  if (!role) throw new Error('Jenis akses pengguna tidak valid.');
+  return { uid: firebaseUser.uid, email: firebaseUser.email ?? fallbackEmail, username: value.username ? String(value.username) : undefined, displayName: String(value.displayName || firebaseUser.displayName || fallbackEmail), role, unit: String(value.unit || 'Hemodialisis') };
 }
 
-export async function signInWithFirebase(email: string, password: string): Promise<User> {
-  if (!auth || !db) throw new Error('Firebase belum dikonfigurasi.');
+export async function signInWithFirebase(identifier: string, password: string): Promise<User> {
+  if (!auth || !db) throw new Error('Layanan akun belum dikonfigurasi.');
+  const authEmail = buildFirebaseAuthEmail(identifier, authUsernameDomain);
+  if (!authEmail) throw new Error('ID pengguna atau email wajib diisi.');
   try {
-    const credential = await signInWithEmailAndPassword(auth, email, password);
-    try { return await userProfile(credential.user, email); }
+    const credential = await signInWithEmailAndPassword(auth, authEmail, password);
+    try { return await userProfile(credential.user, authEmail); }
     catch (error) { await signOut(auth); throw error; }
   } catch (error) {
     if (!(error instanceof FirebaseError)) throw error;
-    if (error.code === 'auth/invalid-credential') throw new Error('Email atau kata sandi tidak sesuai.');
-    if (error.code === 'auth/operation-not-allowed') throw new Error('Login Email/Password belum diaktifkan di Firebase Console.');
+    if (error.code === 'auth/invalid-credential') throw new Error('ID pengguna/email atau kata sandi tidak sesuai.');
+    if (error.code === 'auth/operation-not-allowed') throw new Error('Metode login belum diaktifkan. Hubungi admin aplikasi.');
     if (error.code === 'auth/too-many-requests') throw new Error('Terlalu banyak percobaan login. Coba kembali beberapa saat lagi.');
-    if (error.code === 'auth/network-request-failed') throw new Error('Firebase tidak dapat dijangkau. Periksa koneksi internet.');
-    if (error.code === 'permission-denied') throw new Error('Firestore menolak pembacaan profil pengguna. Periksa Security Rules.');
-    throw new Error(`Login Firebase gagal (${error.code}).`);
+    if (error.code === 'auth/network-request-failed') throw new Error('Layanan akun tidak dapat dijangkau. Periksa koneksi internet.');
+    if (error.code === 'permission-denied') throw new Error('Akun belum mendapat izin membaca profil. Hubungi admin.');
+    throw new Error(`Gagal masuk (${error.code}).`);
   }
 }
 
@@ -129,13 +133,13 @@ export async function restoreFirebaseSession(): Promise<User | null> {
 }
 
 export async function waitForFirebaseAuth(uid: string): Promise<void> {
-  if (!auth) throw new Error('Firebase Auth tidak tersedia.');
+  if (!auth) throw new Error('Layanan akun tidak tersedia.');
   if (auth.currentUser?.uid === uid) return;
   await new Promise<void>((resolve, reject) => {
-    const timeout = window.setTimeout(() => { unsubscribe(); reject(new Error('Sesi Firebase kedaluwarsa. Silakan login ulang.')); }, 8000);
+    const timeout = window.setTimeout(() => { unsubscribe(); reject(new Error('Sesi akun kedaluwarsa. Silakan masuk ulang.')); }, 8000);
     const unsubscribe = onAuthStateChanged(auth!, (current) => {
       if (current?.uid === uid) { window.clearTimeout(timeout); unsubscribe(); resolve(); }
-      else if (current === null) { window.clearTimeout(timeout); unsubscribe(); reject(new Error('Sesi Firebase tidak ditemukan. Silakan login ulang.')); }
+      else if (current === null) { window.clearTimeout(timeout); unsubscribe(); reject(new Error('Sesi akun tidak ditemukan. Silakan masuk ulang.')); }
     });
   });
 }
@@ -188,7 +192,7 @@ export async function updatePatientFirestore(patientId: string, input: PatientIn
 
 export async function saveSessionFirestore(patient: Patient, form: SessionFormData, user: User): Promise<HDSession> {
   if (trustedBackendEnabled) {
-    if (!functions) throw new Error('Trusted backend belum tersedia. Silakan login ulang.');
+    if (!functions) throw new Error('Layanan penyimpanan belum siap. Silakan masuk ulang.');
     try {
       const createSession = httpsCallable<{
         patientId: string;
@@ -258,11 +262,28 @@ export function subscribeUserProfiles(onData: (users: User[]) => void, onError: 
   const { db } = requireFirebase();
   return onSnapshot(collection(db, 'users'), (snapshot) => onData(snapshot.docs.map((item) => {
     const value = item.data(); const role = normalizeRole(value.role);
-    return { uid: item.id, email: String(value.email ?? ''), displayName: String(value.displayName ?? ''), role: role ?? 'PERAWAT', unit: String(value.unit ?? 'Hemodialisis') };
+    return { uid: item.id, email: String(value.email ?? ''), username: value.username ? String(value.username) : undefined, displayName: String(value.displayName ?? ''), role: role ?? 'PERAWAT', unit: String(value.unit ?? 'Hemodialisis') };
   })), (error) => onError(error.message));
 }
 
 export async function saveUserProfile(profile: User): Promise<void> {
   const { db } = requireFirebase();
-  await setDoc(doc(db, 'users', profile.uid.trim()), { email: profile.email.trim(), displayName: profile.displayName.trim(), role: profile.role, unit: profile.unit || 'Hemodialisis', is_active: true, updated_at: serverTimestamp() }, { merge: true });
+  const username = profile.username ? normalizeAuthIdentifier(profile.username) : '';
+  const email = profile.email.trim() || (username ? buildFirebaseAuthEmail(username, authUsernameDomain) : '');
+  await setDoc(doc(db, 'users', profile.uid.trim()), { email, username: username || null, displayName: profile.displayName.trim(), role: profile.role, unit: profile.unit || 'Hemodialisis', is_active: true, updated_at: serverTimestamp() }, { merge: true });
+}
+
+export async function updateOwnUserProfile(input: Pick<User, 'displayName' | 'email' | 'username' | 'unit'>): Promise<Pick<User, 'displayName' | 'email' | 'username' | 'unit'>> {
+  const { auth, db } = requireFirebase();
+  const username = input.username ? normalizeAuthIdentifier(input.username) : '';
+  const email = input.email.trim() || (username ? buildFirebaseAuthEmail(username, authUsernameDomain) : '');
+  const next = {
+    displayName: input.displayName.trim(),
+    email,
+    username,
+    unit: input.unit.trim() || 'Hemodialisis',
+    updated_at: serverTimestamp(),
+  };
+  await updateDoc(doc(db, 'users', auth.currentUser!.uid), next);
+  return { displayName: next.displayName, email, username: username || undefined, unit: next.unit };
 }

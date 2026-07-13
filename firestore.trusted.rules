@@ -8,6 +8,21 @@ service cloud.firestore {
     function isMedicalUser() { return isActiveUser() && role() in ['PERAWAT', 'SUPERVISOR', 'DOKTER', 'ADMIN', 'PK_II', 'PK_III']; }
     function isSupervisor() { return isActiveUser() && role() in ['SUPERVISOR', 'PK_III']; }
     function isAdmin() { return isActiveUser() && role() == 'ADMIN'; }
+    function validUserText(value, min, max) {
+      return value is string && value.size() >= min && value.size() <= max;
+    }
+    function validSelfUserUpdate(userId, next, previous) {
+      return signedIn() && request.auth.uid == userId && isActiveUser()
+        && next.diff(previous).affectedKeys().hasOnly(['displayName', 'email', 'username', 'unit', 'updated_at'])
+        && next.role == previous.role
+        && next.get('is_active', true) == previous.get('is_active', true)
+        && validUserText(next.displayName, 1, 120)
+        && validUserText(next.email, 0, 160)
+        && next.get('username', '') is string
+        && next.get('username', '').size() <= 80
+        && validUserText(next.unit, 1, 120)
+        && next.updated_at == request.time;
+    }
     function validPatient(data) {
       return data.rm is string && data.rm.size() > 0
         && data.nama is string && data.nama.size() > 0
@@ -18,7 +33,8 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
-      allow create, update, delete: if isAdmin();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || validSelfUserUpdate(userId, request.resource.data, resource.data);
     }
     match /patient_keys/{rmKey} {
       allow read, create, update, delete: if isSupervisor() || isAdmin();

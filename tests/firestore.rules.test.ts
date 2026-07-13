@@ -105,6 +105,46 @@ describe('Firestore Rules — transaksi klinis Spark', () => {
     await assertSucceeds(batch.commit());
   });
 
+  it('mengizinkan pengguna mengubah profil sendiri tanpa mengubah role', async () => {
+    await seed('PERAWAT');
+    const db = environment.authenticatedContext('user-1').firestore();
+    await assertSucceeds(updateDoc(doc(db, 'users', 'user-1'), {
+      displayName: 'Perawat Produksi',
+      email: 'perawat@zonasi-hd.local',
+      username: 'perawat',
+      unit: 'Hemodialisis',
+      updated_at: serverTimestamp(),
+    }));
+  });
+
+  it('menolak pengguna biasa mengubah role sendiri atau profil pengguna lain', async () => {
+    await seed('PERAWAT');
+    await environment.withSecurityRulesDisabled(async (context) => setDoc(doc(context.firestore(), 'users', 'user-2'), {
+      displayName: 'Dokter Uji', role: 'DOKTER', unit: 'Hemodialisis', is_active: true,
+    }));
+    const db = environment.authenticatedContext('user-1').firestore();
+    await assertFails(updateDoc(doc(db, 'users', 'user-1'), {
+      role: 'ADMIN',
+      updated_at: serverTimestamp(),
+    }));
+    await assertFails(updateDoc(doc(db, 'users', 'user-2'), {
+      displayName: 'Nama Diubah',
+      updated_at: serverTimestamp(),
+    }));
+  });
+
+  it('mengizinkan admin mengubah role pengguna lain', async () => {
+    await seed('ADMIN');
+    await environment.withSecurityRulesDisabled(async (context) => setDoc(doc(context.firestore(), 'users', 'user-2'), {
+      displayName: 'Perawat Uji', role: 'PERAWAT', unit: 'Hemodialisis', is_active: true,
+    }));
+    const db = environment.authenticatedContext('user-1').firestore();
+    await assertSucceeds(updateDoc(doc(db, 'users', 'user-2'), {
+      role: 'SUPERVISOR',
+      updated_at: serverTimestamp(),
+    }));
+  });
+
   it('mewajibkan versi dry-weight bertambah saat berat kering berubah', async () => {
     await seed('SUPERVISOR');
     const db = environment.authenticatedContext('user-1').firestore();

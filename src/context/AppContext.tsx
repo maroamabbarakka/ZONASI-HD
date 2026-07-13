@@ -3,7 +3,6 @@ import { createDemoData } from '../data/demoData';
 import type { Alert, AppData, DataMode, HDSession, Patient, PatientInput, SessionFormData, User, UserRole } from '../types';
 import { calculateIDWG, calculateIDWGRaw, calculateYellowStreak, getZone } from '../utils/zonasiCalculator';
 import { normalizeRole } from '../lib/permissions';
-import { demoAccountsConfig, getDemoAccountRole } from '../lib/demoAccount';
 
 const DATA_KEY = 'zonasi-hd-demo-data-v1';
 const USER_KEY = 'zonasi-hd-demo-user-v1';
@@ -19,8 +18,9 @@ interface AppContextValue {
   data: AppData;
   user: User | null;
   login: (role: UserRole) => void;
-  loginFirebase: (email: string, password: string) => Promise<void>;
+  loginFirebase: (identifier: string, password: string) => Promise<void>;
   logout: () => void;
+  updateOwnProfile: (input: Pick<User, 'displayName' | 'email' | 'username' | 'unit'>) => Promise<void>;
   saveSession: (patient: Patient, form: SessionFormData) => Promise<HDSession>;
   acknowledgeAlert: (alertId: string) => Promise<void>;
   resetDemo: () => void;
@@ -93,24 +93,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
     void import('../services/firebase').then(async ({ waitForFirebaseAuth, subscribeClinicalData }) => {
       await waitForFirebaseAuth(user.uid); if (cancelled) return;
       unsubscribe = subscribeClinicalData((next) => { setData(next); setDataError(''); setDataLoading(false); setDataUpdatedAt(new Date().toISOString()); }, (message) => { setDataError(message); setDataLoading(false); });
-    }).catch((error) => { setDataError(error instanceof Error ? error.message : 'Gagal menghubungkan data Firestore.'); setDataLoading(false); });
+    }).catch((error) => { setDataError(error instanceof Error ? error.message : 'Gagal menghubungkan data pusat.'); setDataLoading(false); });
     return () => { cancelled = true; unsubscribe?.(); };
   }, [user, dataMode]);
 
   const login = useCallback((role: UserRole) => setUser(demoUsers[role]), []);
-  const loginFirebase = useCallback(async (email: string, password: string) => {
-    const demoRole = getDemoAccountRole(email, password, demoAccountsConfig);
-    if (demoRole) {
-      setUser(demoUsers[demoRole]);
-      return;
-    }
+  const loginFirebase = useCallback(async (identifier: string, password: string) => {
     const { signInWithFirebase } = await import('../services/firebase');
-    setUser(await signInWithFirebase(email, password));
+    setUser(await signInWithFirebase(identifier, password));
   }, []);
   const logout = useCallback(() => {
     void import('../services/firebase').then(({ signOutFirebase }) => signOutFirebase());
     setUser(null);
   }, []);
+  const updateOwnProfile = useCallback(async (input: Pick<User, 'displayName' | 'email' | 'username' | 'unit'>) => {
+    if (!user) throw new Error('Pengguna belum masuk.');
+    if (dataMode !== 'firebase') throw new Error('Profil produksi hanya tersedia untuk akun petugas resmi.');
+    const { updateOwnUserProfile } = await import('../services/firebase');
+    const next = await updateOwnUserProfile(input);
+    setUser((current) => current ? { ...current, ...next } : current);
+  }, [user, dataMode]);
 
   const saveSession = useCallback(async (patient: Patient, form: SessionFormData) => {
     if (!user) throw new Error('Pengguna belum masuk');
@@ -189,7 +191,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [user, dataMode, data.patients]);
 
   const importPatients = useCallback(async (rows: PatientInput[]) => {
-    if (!user || user.role !== 'ADMIN') throw new Error('Bulk import hanya dapat dilakukan Administrator.');
+    if (!user || user.role !== 'ADMIN') throw new Error('Impor banyak pasien hanya dapat dilakukan Administrator.');
     if (dataMode === 'firebase') { const { importPatientsFirestore } = await import('../services/firebase'); return importPatientsFirestore(rows); }
     const failed: Array<{ rm: string; message: string }> = []; let imported = 0;
     for (const row of rows) { try { await createPatient(row); imported++; } catch (error) { failed.push({ rm: row.rm, message: error instanceof Error ? error.message : 'Gagal mengimpor.' }); } }
@@ -201,8 +203,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     .filter((session) => session.patient_id === patientId)
     .sort((a, b) => b.session_date.localeCompare(a.session_date)), [data.sessions]);
 
-  const value = useMemo(() => ({ data, user, login, loginFirebase, logout, saveSession, acknowledgeAlert, resetDemo, sessionsFor, dataMode, dataError, dataLoading, dataUpdatedAt, createPatient, updatePatient, importPatients }),
-    [data, user, login, loginFirebase, logout, saveSession, acknowledgeAlert, resetDemo, sessionsFor, dataMode, dataError, dataLoading, dataUpdatedAt, createPatient, updatePatient, importPatients]);
+  const value = useMemo(() => ({ data, user, login, loginFirebase, logout, updateOwnProfile, saveSession, acknowledgeAlert, resetDemo, sessionsFor, dataMode, dataError, dataLoading, dataUpdatedAt, createPatient, updatePatient, importPatients }),
+    [data, user, login, loginFirebase, logout, updateOwnProfile, saveSession, acknowledgeAlert, resetDemo, sessionsFor, dataMode, dataError, dataLoading, dataUpdatedAt, createPatient, updatePatient, importPatients]);
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }
 

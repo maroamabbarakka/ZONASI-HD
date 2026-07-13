@@ -9,6 +9,7 @@ const PatientsPage = lazy(() => import('./pages/PatientsPage').then((module) => 
 const ProtocolsPage = lazy(() => import('./pages/ProtocolsPage').then((module) => ({ default: module.ProtocolsPage })));
 const ReportsPage = lazy(() => import('./pages/ReportsPage').then((module) => ({ default: module.ReportsPage })));
 const UsersPage = lazy(() => import('./pages/UsersPage').then((module) => ({ default: module.UsersPage })));
+const AboutPage = lazy(() => import('./pages/AboutPage').then((module) => ({ default: module.AboutPage })));
 
 export default function App() {
   return <BrowserRouter><Suspense fallback={<div className="route-loading"><img src="/logo-zonasi-hd-square.png" alt="" /><span>Memuat ZONASI-HD…</span></div>}><Routes>
@@ -17,6 +18,7 @@ export default function App() {
       <Route index element={<DashboardPage />} /><Route path="patients" element={<PatientsPage />} />
       <Route path="reports" element={<ReportsPage />} /><Route path="protocols" element={<ProtocolsPage />} />
       <Route path="users" element={<UsersPage />} />
+      <Route path="about" element={<AboutPage />} />
     </Route></Route>
     <Route path="*" element={<Navigate to="/" replace />} />
   </Routes></Suspense></BrowserRouter>;

@@ -8,11 +8,11 @@ Command Center visual untuk pemantauan *Interdialytic Weight Gain* (IDWG) pasien
 
 ## Status
 
-MVP demonstrasi sudah dapat dijalankan penuh. Firebase project `zonasi-hd` telah dihubungkan untuk Email/Password Authentication, role `users/{uid}`, serta sinkronisasi real-time pasien, sesi, dan alert. Login role demo tetap memakai data dummy terpisah di `localStorage`.
+MVP produksi awal sudah dapat dijalankan dengan Firebase project `zonasi-hd` untuk Email/Password Authentication, role `users/{uid}`, serta sinkronisasi real-time pasien, sesi, alert, dan profil akun. Akun pendek seperti `perawat`, `supervisor`, `dokter`, dan `admin` sekarang diperlakukan sebagai akun produksi Firebase, bukan akun demo lokal.
 
 Fitur yang tersedia:
 
-- login Firebase Email/Password dengan role Firestore, serta login simulasi untuk demo;
+- login Firebase dengan ID pengguna pendek atau email, plus role Firestore;
 - master pasien dengan tambah/edit dan nomor RM unik;
 - bulk import XLSX khusus Administrator dengan preview dan validasi;
 - sinkronisasi pasien, sesi, dan alert secara real-time untuk pengguna Firebase;
@@ -36,19 +36,17 @@ npm install
 npm run dev
 ```
 
-Buka `http://localhost:5173`. Pilih peran pada halaman login. Tombol **Reset data demo** mengembalikan data awal.
+Buka `http://localhost:5173`, lalu masuk memakai ID pengguna atau email akun Firebase.
 
-### Akun demo terisolasi
+### Akun produksi username pendek
 
-Produksi dapat menyediakan satu login demo berbasis environment tanpa membuat akun Firebase. UID demo selalu memakai data sintetis lokal dan tidak pernah berlangganan Firestore klinis. Konfigurasinya:
+Login pendek mengikuti pola `username@domain-internal` di Firebase Authentication. Contoh: ID pengguna `perawat` memakai akun Auth `perawat@zonasi-hd.local`. Domain internal dapat diatur lewat:
 
 ```env
-VITE_DEMO_ACCOUNTS_ENABLED=true
-VITE_DEMO_ACCOUNT_DOMAIN=zonasi-hd.app
-VITE_DEMO_ACCOUNT_PASSWORD=ganti-dengan-password-demo
+VITE_AUTH_USERNAME_DOMAIN=zonasi-hd.local
 ```
 
-Nama akun dibentuk sebagai `{role}@{domain}` untuk role `perawat`, `supervisor`, `dokter`, dan `admin`. Nilai `VITE_*` tertanam pada bundle dan bukan rahasia. Mekanisme ini hanya aman karena akun demo tidak memberikan akses Firebase dan tidak boleh digunakan sebagai autentikasi data nyata.
+Setiap akun dapat memperbarui profilnya sendiri dari menu **Akun**. Field `role` hanya boleh diubah oleh `ADMIN` melalui menu **Pengguna** dan tetap dibatasi oleh Firestore Security Rules.
 
 ### Preview tautan media sosial
 
@@ -76,19 +74,21 @@ npm test --prefix functions
 
 ## Batas MVP dan tahap produksi
 
-Pengguna Firebase kini memakai Firestore, sedangkan login demo tetap lokal. Sebelum penggunaan klinis, tetap diperlukan audit privasi, verifikasi klinis/SPO oleh komite terkait, pengujian rules, backup, monitoring, dan uji penerimaan pengguna.
+Pengguna Firebase kini memakai Firestore dan akun pendek produksi. Sebelum penggunaan klinis, tetap diperlukan audit privasi, verifikasi klinis/SPO oleh komite terkait, pengujian rules, backup, monitoring, dan uji penerimaan pengguna.
 
 Konfigurasi proyek aktif tersimpan di `.env.local` dan tidak ikut Git. Cache Firestore persisten belum diaktifkan karena perangkat yang menyimpan data medis harus melalui kebijakan perangkat tepercaya dan persetujuan privasi.
 
 ### Menyiapkan akun Firebase
 
 1. Aktifkan **Authentication → Sign-in method → Email/Password**.
-2. Buat akun petugas pada **Authentication → Users**.
+2. Buat akun petugas pada **Authentication → Users**. Untuk login pendek seperti `perawat1`, gunakan email Auth internal `perawat1@zonasi-hd.local` atau domain dari `VITE_AUTH_USERNAME_DOMAIN`.
 3. Salin UID akun tersebut.
 4. Buat dokumen Firestore `users/{uid}` dengan field:
 
 ```json
 {
+  "username": "perawat1",
+  "email": "perawat1@zonasi-hd.local",
   "displayName": "Nama Petugas",
   "role": "SUPERVISOR",
   "unit": "Hemodialisis"

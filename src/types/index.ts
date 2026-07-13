@@ -5,6 +5,7 @@ export type SessionStatus = 'RECORDED' | 'VERIFIED' | 'REVIEWED' | 'CORRECTED' |
 export interface User {
   uid: string;
   email: string;
+  username?: string;
   displayName: string;
   role: UserRole;
   unit: string;
