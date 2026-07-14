@@ -13,3 +13,4 @@ vite.config.d.ts
 # Dokumen sumber lokal berpotensi memuat data klinis/identitas.
 *.xlsx
 *.docx
+rapor/

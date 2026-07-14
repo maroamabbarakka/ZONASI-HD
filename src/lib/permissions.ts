@@ -1,8 +1,8 @@
-import type { UserRole } from '../types';
+﻿import type { UserRole } from '../types';
 
 export const roleLabels: Record<UserRole, string> = {
-  PERAWAT: 'Perawat',
-  SUPERVISOR: 'Supervisor Klinis',
+  PERAWAT: 'Perawat Pelaksana',
+  SUPERVISOR: 'Perawat Mahir',
   DOKTER: 'Dokter',
   ADMIN: 'Administrator',
 };

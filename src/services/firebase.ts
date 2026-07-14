@@ -1,15 +1,16 @@
 import { FirebaseError, initializeApp, type FirebaseApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, type Auth, type User as FirebaseUser } from 'firebase/auth';
 import {
-  collection, collectionGroup, doc, getDoc, initializeFirestore, memoryLocalCache,
-  onSnapshot, runTransaction, serverTimestamp, setDoc, updateDoc,
-  type DocumentData, type Firestore, type QueryDocumentSnapshot, type Unsubscribe,
+  collection, collectionGroup, doc, getDoc, getDocs, initializeFirestore, memoryLocalCache,
+  onSnapshot, query, runTransaction, serverTimestamp, setDoc, updateDoc,
+  where,
+  type DocumentData, type Firestore, type QueryDocumentSnapshot, type Transaction, type Unsubscribe,
 } from 'firebase/firestore';
 import { getFunctions, httpsCallable, type Functions } from 'firebase/functions';
 import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check';
 import { buildFirebaseAuthEmail, normalizeAuthIdentifier } from '../lib/authIdentifier';
 import { normalizeRole } from '../lib/permissions';
-import type { Alert, AppData, HDSession, Patient, PatientInput, SessionFormData, User } from '../types';
+import type { Alert, AppData, HDSession, Patient, PatientInput, PublicPatientCard, SessionFormData, User } from '../types';
 import { calculateIDWG, calculateIDWGRaw, getZone } from '../utils/zonasiCalculator';
 
 const firebaseConfig = {
@@ -87,9 +88,47 @@ const alertFromDoc = (snap: QueryDocumentSnapshot<DocumentData>): Alert => {
   };
 };
 
+const publicCardFromValue = (value: DocumentData): PublicPatientCard => ({
+  patient_id: String(value.patient_id ?? ''),
+  rm: String(value.rm ?? ''),
+  nama: String(value.nama ?? ''),
+  tanggal_lahir: String(value.tanggal_lahir ?? ''),
+  jenis_kelamin: value.jenis_kelamin === 'P' ? 'P' : 'L',
+  bb_kering: Number(value.bb_kering ?? 0),
+  latest_session_date: iso(value.latest_session_date),
+  latest_pre_weight: value.latest_pre_weight == null ? undefined : Number(value.latest_pre_weight),
+  latest_idwg_pct: value.latest_idwg_pct == null ? undefined : Number(value.latest_idwg_pct),
+  latest_zone: value.latest_zone,
+  yellow_streak: Number(value.yellow_streak ?? 0),
+  risk_level: value.risk_level ?? 'low',
+  is_active: value.is_active !== false,
+  updated_at: iso(value.updated_at),
+});
+
 function requireFirebase() {
   if (!auth || !db || !auth.currentUser) throw new Error('Sesi akun belum siap. Silakan masuk ulang.');
   return { auth, db };
+}
+
+function setPublicPatientCard(transaction: Transaction, patientId: string, patient: DocumentData, latest: Partial<PublicPatientCard> = {}) {
+  if (!db) throw new Error('Layanan data belum siap.');
+  const payload = {
+    patient_id: patientId,
+    rm: String(patient.rm ?? ''),
+    nama: String(patient.nama ?? ''),
+    tanggal_lahir: String(patient.tanggal_lahir ?? ''),
+    jenis_kelamin: patient.jenis_kelamin === 'P' ? 'P' : 'L',
+    bb_kering: Number(patient.bb_kering ?? 0),
+    latest_session_date: latest.latest_session_date,
+    latest_pre_weight: latest.latest_pre_weight,
+    latest_idwg_pct: latest.latest_idwg_pct,
+    latest_zone: latest.latest_zone,
+    yellow_streak: Number(latest.yellow_streak ?? patient.yellow_streak ?? 0),
+    risk_level: latest.risk_level ?? patient.risk_level ?? 'low',
+    is_active: patient.is_active !== false,
+    updated_at: serverTimestamp(),
+  };
+  transaction.set(doc(db, 'patient_cards', patientId), Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined)), { merge: true });
 }
 
 async function userProfile(firebaseUser: FirebaseUser, fallbackEmail = ''): Promise<User> {
@@ -149,10 +188,17 @@ export async function signOutFirebase(): Promise<void> { if (auth?.currentUser) 
 export function subscribeClinicalData(onData: (data: AppData) => void, onError: (message: string) => void): Unsubscribe {
   const { db } = requireFirebase();
   let patients: Patient[] = []; let sessions: HDSession[] = []; let alerts: Alert[] = [];
-  const emit = () => onData({ patients, sessions, alerts });
+  const emit = () => {
+    const activePatientIds = new Set(patients.map((patient) => patient.id));
+    onData({
+      patients,
+      sessions: sessions.filter((session) => activePatientIds.has(session.patient_id)),
+      alerts: alerts.filter((alert) => activePatientIds.has(alert.patient_id)),
+    });
+  };
   const fail = (error: Error) => onError(error.message);
   const unsubs = [
-    onSnapshot(collection(db, 'patients'), (snap) => { patients = snap.docs.map(patientFromDoc); emit(); }, fail),
+    onSnapshot(query(collection(db, 'patients'), where('is_active', '==', true)), (snap) => { patients = snap.docs.map(patientFromDoc); emit(); }, fail),
     onSnapshot(collectionGroup(db, 'sessions'), (snap) => { sessions = snap.docs.map(sessionFromDoc); emit(); }, fail),
     onSnapshot(collection(db, 'alerts'), (snap) => { alerts = snap.docs.map(alertFromDoc); emit(); }, fail),
   ];
@@ -170,7 +216,9 @@ export async function createPatientFirestore(input: PatientInput): Promise<Patie
   await runTransaction(db, async (transaction) => {
     if ((await transaction.get(keyRef)).exists()) throw new Error(`Nomor RM ${input.rm} sudah digunakan.`);
     transaction.set(keyRef, { patient_id: patientRef.id, rm: input.rm.trim(), created_at: serverTimestamp() });
-    transaction.set(patientRef, { ...withoutUndefined(input), rm: input.rm.trim(), nama: input.nama.trim(), yellow_streak: 0, risk_level: 'low', is_active: true, current_dry_weight_version: 1, created_at: serverTimestamp(), created_by: currentUid, updated_at: serverTimestamp() });
+    const patientData = { ...withoutUndefined(input), rm: input.rm.trim(), nama: input.nama.trim(), yellow_streak: 0, risk_level: 'low', is_active: true, current_dry_weight_version: 1, created_at: serverTimestamp(), created_by: currentUid, updated_at: serverTimestamp() };
+    transaction.set(patientRef, patientData);
+    setPublicPatientCard(transaction, patientRef.id, patientData);
   });
   return { id: patientRef.id, ...input, rm: input.rm.trim(), nama: input.nama.trim(), yellow_streak: 0, risk_level: 'low', is_active: true, created_at: now, created_by: currentUid };
 }
@@ -186,7 +234,27 @@ export async function updatePatientFirestore(patientId: string, input: PatientIn
     }
     const previousWeight = Number(current.data().bb_kering);
     const previousVersion = Number(current.data().current_dry_weight_version ?? 1);
-    transaction.update(patientRef, { ...withoutUndefined(input), rm: input.rm.trim(), nama: input.nama.trim(), current_dry_weight_version: input.bb_kering === previousWeight ? previousVersion : previousVersion + 1, updated_at: serverTimestamp() });
+    const next = { ...withoutUndefined(input), rm: input.rm.trim(), nama: input.nama.trim(), current_dry_weight_version: input.bb_kering === previousWeight ? previousVersion : previousVersion + 1, updated_at: serverTimestamp() };
+    transaction.update(patientRef, next);
+    setPublicPatientCard(transaction, patientId, { ...current.data(), ...next });
+  });
+}
+
+export async function deletePatientsFirestore(patientIds: string[]): Promise<void> {
+  const { db } = requireFirebase();
+  if (!patientIds.length) return;
+  const patientRefs = patientIds.map((patientId) => doc(db, 'patients', patientId));
+  await runTransaction(db, async (transaction) => {
+    const snapshots = await Promise.all(patientRefs.map((patientRef) => transaction.get(patientRef)));
+    snapshots.forEach((current, index) => {
+      if (!current.exists()) return;
+      const patientRef = patientRefs[index];
+      const rmKey = normalizeRM(String(current.data().rm));
+      if (rmKey) transaction.delete(doc(db, 'patient_keys', rmKey));
+      const next = { ...current.data(), is_active: false, updated_at: serverTimestamp() };
+      transaction.update(patientRef, { is_active: false, updated_at: serverTimestamp() });
+      setPublicPatientCard(transaction, patientRef.id, next);
+    });
   });
 }
 
@@ -227,25 +295,34 @@ export async function saveSessionFirestore(patient: Patient, form: SessionFormDa
     }
   }
   const { db } = requireFirebase(); const patientRef = doc(db, 'patients', patient.id); const sessionRef = doc(db, 'patients', patient.id, 'sessions', form.submission_id);
-  return runTransaction(db, async (transaction) => {
-    const duplicate = await transaction.get(sessionRef);
-    if (duplicate.exists()) return sessionFromValue(duplicate.id, duplicate.data());
-    const current = await transaction.get(patientRef); if (!current.exists()) throw new Error('Pasien tidak ditemukan.');
-    if (current.data().is_active === false) throw new Error('Pasien nonaktif tidak dapat memiliki sesi baru.');
-    const dryWeight = Number(current.data().bb_kering); const dryWeightVersion = Number(current.data().current_dry_weight_version ?? 1);
-    const idwgRaw = calculateIDWGRaw(form.pre_weight, dryWeight); const idwg = calculateIDWG(form.pre_weight, dryWeight); const zone = getZone(idwgRaw); const now = new Date().toISOString();
-    const session: HDSession = { id: sessionRef.id, submission_id: form.submission_id, patient_id: patient.id, session_date: now, shift: form.shift, pre_weight: form.pre_weight, post_weight: form.post_weight, idwg_raw_pct: idwgRaw, idwg_pct: idwg, zone, dry_weight_used_kg: dryWeight, dry_weight_version: dryWeightVersion, formula_version: 'IDWG_V1', threshold_version: 'ZONE_2026_V1', protocol_version: 'HD_FLUID_V1', status: 'RECORDED', calculation_authority: 'RULES_VERIFIED_CLIENT_V1', interventions: form.interventions, uf_goal: form.uf_goal, notes: form.notes, nurse_uid: user.uid, nurse_name: user.displayName, created_at: now };
-    const yellowStreak = zone === 'KUNING' ? Number(current.data().yellow_streak ?? 0) + 1 : 0;
-    const storedSession = Object.fromEntries(Object.entries(session).filter(([, value]) => value !== undefined));
-    transaction.set(sessionRef, { ...storedSession, session_date: serverTimestamp(), created_at: serverTimestamp() });
-    transaction.update(patientRef, { latest_session_id: form.submission_id, latest_session_date: serverTimestamp(), latest_session_status: 'RECORDED', latest_pre_weight: form.pre_weight, latest_idwg_pct: idwg, latest_zone: zone, yellow_streak: yellowStreak, risk_level: zone === 'MERAH' ? 'high' : yellowStreak >= 3 ? 'medium' : 'low', updated_at: serverTimestamp() });
-    if (yellowStreak === 3 || zone === 'MERAH') {
-      const alertType = zone === 'MERAH' ? 'RECENT_RED' : 'YELLOW_STREAK_3';
-      const alertRef = doc(db, 'alerts', `${form.submission_id}_${alertType}`); transaction.set(alertRef, { patient_id: patient.id, patient_name: String(current.data().nama), type: alertType, status: 'OPEN', severity: zone === 'MERAH' ? 'HIGH' : 'MEDIUM', trigger_session_id: form.submission_id, dedupe_key: `${form.submission_id}_${alertType}`, protocol_version: 'HD_FLUID_V1', triggered_at: serverTimestamp(), acknowledged: false, message: zone === 'MERAH' ? `${String(current.data().nama)} baru tercatat di Zona Merah (${idwg.toFixed(1)}%).` : `${String(current.data().nama)} berada di Zona Kuning selama 3 sesi berturut-turut.` });
+  try {
+    return await runTransaction(db, async (transaction) => {
+      const duplicate = await transaction.get(sessionRef);
+      if (duplicate.exists()) return sessionFromValue(duplicate.id, duplicate.data());
+      const current = await transaction.get(patientRef); if (!current.exists()) throw new Error('Pasien tidak ditemukan.');
+      if (current.data().is_active === false) throw new Error('Pasien nonaktif tidak dapat memiliki sesi baru.');
+      const dryWeight = Number(current.data().bb_kering); const dryWeightVersion = Number(current.data().current_dry_weight_version ?? 1);
+      const idwgRaw = calculateIDWGRaw(form.pre_weight, dryWeight); const idwg = calculateIDWG(form.pre_weight, dryWeight); const zone = getZone(idwgRaw); const now = new Date().toISOString();
+      const session: HDSession = { id: sessionRef.id, submission_id: form.submission_id, patient_id: patient.id, session_date: now, shift: form.shift, pre_weight: form.pre_weight, post_weight: form.post_weight, idwg_raw_pct: idwgRaw, idwg_pct: idwg, zone, dry_weight_used_kg: dryWeight, dry_weight_version: dryWeightVersion, formula_version: 'IDWG_V1', threshold_version: 'ZONE_2026_V1', protocol_version: 'HD_FLUID_V1', status: 'RECORDED', calculation_authority: 'RULES_VERIFIED_CLIENT_V1', interventions: form.interventions, uf_goal: form.uf_goal, notes: form.notes, nurse_uid: user.uid, nurse_name: user.displayName, created_at: now };
+      const yellowStreak = zone === 'KUNING' ? Number(current.data().yellow_streak ?? 0) + 1 : 0;
+      const storedSession = Object.fromEntries(Object.entries(session).filter(([, value]) => value !== undefined));
+      transaction.set(sessionRef, { ...storedSession, session_date: serverTimestamp(), created_at: serverTimestamp() });
+      const riskLevel = zone === 'MERAH' ? 'high' : yellowStreak >= 3 ? 'medium' : 'low';
+      transaction.update(patientRef, { latest_session_id: form.submission_id, latest_session_date: serverTimestamp(), latest_session_status: 'RECORDED', latest_pre_weight: form.pre_weight, latest_idwg_pct: idwg, latest_zone: zone, yellow_streak: yellowStreak, risk_level: riskLevel, updated_at: serverTimestamp() });
+      setPublicPatientCard(transaction, patient.id, current.data(), { latest_session_date: now, latest_pre_weight: form.pre_weight, latest_idwg_pct: idwg, latest_zone: zone, yellow_streak: yellowStreak, risk_level: riskLevel });
+      if (yellowStreak === 3 || zone === 'MERAH') {
+        const alertType = zone === 'MERAH' ? 'RECENT_RED' : 'YELLOW_STREAK_3';
+        const alertRef = doc(db, 'alerts', `${form.submission_id}_${alertType}`); transaction.set(alertRef, { patient_id: patient.id, patient_name: String(current.data().nama), type: alertType, status: 'OPEN', severity: zone === 'MERAH' ? 'HIGH' : 'MEDIUM', trigger_session_id: form.submission_id, dedupe_key: `${form.submission_id}_${alertType}`, protocol_version: 'HD_FLUID_V1', triggered_at: serverTimestamp(), acknowledged: false, message: zone === 'MERAH' ? `${String(current.data().nama)} baru tercatat di Zona Merah (${idwg.toFixed(1)}%).` : `${String(current.data().nama)} berada di Zona Kuning selama 3 sesi berturut-turut.` });
+      }
+      transaction.set(doc(db, 'audit_logs', `session_${form.submission_id}`), { actor_uid: user.uid, actor_role: user.role, actor_unit: user.unit, action: 'CREATE_CLINICAL_SESSION', resource_path: sessionRef.path, request_id: form.submission_id, patient_id: patient.id, outcome: 'SUCCESS', clinical_result: { zone, idwg_pct: idwg }, created_at: serverTimestamp() });
+      return session;
+    });
+  } catch (error) {
+    if (error instanceof FirebaseError && error.code === 'permission-denied') {
+      throw new Error('Sesi belum tersimpan karena akses akun belum sesuai. Pastikan akun masih aktif dan aturan database terbaru sudah terpasang.');
     }
-    transaction.set(doc(db, 'audit_logs', `session_${form.submission_id}`), { actor_uid: user.uid, actor_role: user.role, actor_unit: user.unit, action: 'CREATE_CLINICAL_SESSION', resource_path: sessionRef.path, request_id: form.submission_id, patient_id: patient.id, outcome: 'SUCCESS', clinical_result: { zone, idwg_pct: idwg }, created_at: serverTimestamp() });
-    return session;
-  });
+    throw error;
+  }
 }
 
 export async function acknowledgeAlertFirestore(alertId: string, user: User): Promise<void> {
@@ -256,6 +333,14 @@ export async function importPatientsFirestore(rows: PatientInput[]) {
   const failed: Array<{ rm: string; message: string }> = []; let imported = 0;
   for (const row of rows) { try { await createPatientFirestore(row); imported++; } catch (error) { failed.push({ rm: row.rm, message: error instanceof Error ? error.message : 'Gagal mengimpor.' }); } }
   return { imported, failed };
+}
+
+export async function getPublicPatientCard(patientId: string): Promise<PublicPatientCard | null> {
+  if (!db) throw new Error('Layanan data belum siap.');
+  const snap = await getDoc(doc(db, 'patient_cards', patientId));
+  if (!snap.exists()) return null;
+  const card = publicCardFromValue(snap.data());
+  return card.is_active ? card : null;
 }
 
 export function subscribeUserProfiles(onData: (users: User[]) => void, onError: (message: string) => void): Unsubscribe {

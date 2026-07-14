@@ -3,13 +3,14 @@ import { createDemoData } from '../data/demoData';
 import type { Alert, AppData, DataMode, HDSession, Patient, PatientInput, SessionFormData, User, UserRole } from '../types';
 import { calculateIDWG, calculateIDWGRaw, calculateYellowStreak, getZone } from '../utils/zonasiCalculator';
 import { normalizeRole } from '../lib/permissions';
+import { removePatientsFromData } from '../utils/patientDeletion';
 
 const DATA_KEY = 'zonasi-hd-demo-data-v1';
 const USER_KEY = 'zonasi-hd-demo-user-v1';
 
 const demoUsers: Record<UserRole, User> = {
-  PERAWAT: { uid: 'demo-perawat', email: 'perawat@demo.local', displayName: 'Perawat Demo', role: 'PERAWAT', unit: 'Hemodialisis' },
-  SUPERVISOR: { uid: 'demo-supervisor', email: 'supervisor@demo.local', displayName: 'Supervisor Klinis', role: 'SUPERVISOR', unit: 'Hemodialisis' },
+  PERAWAT: { uid: 'demo-perawat', email: 'perawat@demo.local', displayName: 'Perawat Pelaksana Demo', role: 'PERAWAT', unit: 'Hemodialisis' },
+  SUPERVISOR: { uid: 'demo-supervisor', email: 'supervisor@demo.local', displayName: 'Perawat Mahir', role: 'SUPERVISOR', unit: 'Hemodialisis' },
   DOKTER: { uid: 'demo-dokter', email: 'dokter@demo.local', displayName: 'Dokter DPJP', role: 'DOKTER', unit: 'Hemodialisis' },
   ADMIN: { uid: 'demo-admin', email: 'admin@demo.local', displayName: 'Administrator', role: 'ADMIN', unit: 'Hemodialisis' },
 };
@@ -31,6 +32,7 @@ interface AppContextValue {
   dataUpdatedAt: string;
   createPatient: (input: PatientInput) => Promise<Patient>;
   updatePatient: (patientId: string, input: PatientInput) => Promise<void>;
+  deletePatients: (patientIds: string[]) => Promise<void>;
   importPatients: (rows: PatientInput[]) => Promise<{ imported: number; failed: Array<{ rm: string; message: string }> }>;
 }
 
@@ -190,6 +192,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setData((current) => ({ ...current, patients: current.patients.map((item) => item.id === patientId ? { ...item, ...input, updated_at: new Date().toISOString() } : item) }));
   }, [user, dataMode, data.patients]);
 
+  const deletePatients = useCallback(async (patientIds: string[]) => {
+    if (!user || !['SUPERVISOR', 'ADMIN'].includes(user.role)) throw new Error('Anda tidak memiliki izin menghapus pasien.');
+    if (!patientIds.length) return;
+    if (dataMode === 'firebase') {
+      const { deletePatientsFirestore } = await import('../services/firebase');
+      await deletePatientsFirestore(patientIds);
+      return;
+    }
+    setData((current) => removePatientsFromData(current, patientIds));
+  }, [user, dataMode]);
+
   const importPatients = useCallback(async (rows: PatientInput[]) => {
     if (!user || user.role !== 'ADMIN') throw new Error('Impor banyak pasien hanya dapat dilakukan Administrator.');
     if (dataMode === 'firebase') { const { importPatientsFirestore } = await import('../services/firebase'); return importPatientsFirestore(rows); }
@@ -203,8 +216,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     .filter((session) => session.patient_id === patientId)
     .sort((a, b) => b.session_date.localeCompare(a.session_date)), [data.sessions]);
 
-  const value = useMemo(() => ({ data, user, login, loginFirebase, logout, updateOwnProfile, saveSession, acknowledgeAlert, resetDemo, sessionsFor, dataMode, dataError, dataLoading, dataUpdatedAt, createPatient, updatePatient, importPatients }),
-    [data, user, login, loginFirebase, logout, updateOwnProfile, saveSession, acknowledgeAlert, resetDemo, sessionsFor, dataMode, dataError, dataLoading, dataUpdatedAt, createPatient, updatePatient, importPatients]);
+  const value = useMemo(() => ({ data, user, login, loginFirebase, logout, updateOwnProfile, saveSession, acknowledgeAlert, resetDemo, sessionsFor, dataMode, dataError, dataLoading, dataUpdatedAt, createPatient, updatePatient, deletePatients, importPatients }),
+    [data, user, login, loginFirebase, logout, updateOwnProfile, saveSession, acknowledgeAlert, resetDemo, sessionsFor, dataMode, dataError, dataLoading, dataUpdatedAt, createPatient, updatePatient, deletePatients, importPatients]);
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }
 

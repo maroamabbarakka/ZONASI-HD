@@ -1,9 +1,9 @@
-import type { UserRole, Zone } from '../../types';
+﻿import type { UserRole, Zone } from '../../types';
 
 const protocols: Record<Zone, string[]> = {
   HIJAU: ['Edukasi rutin pembatasan cairan', 'Catat hasil pada Kartu Kendali', 'Pertahankan pemantauan standar'],
   KUNING: ['Kaji asupan cairan dan natrium', 'Evaluasi target UF dan toleransi pasien', 'Monitoring lebih ketat selama HD', 'Edukasi pasien dan keluarga', 'Eskalasi bila kondisi klinis memburuk'],
-  MERAH: ['Lakukan asesmen kegawatdaruratan segera', 'Aktifkan protokol edema paru unit', 'Kolaborasi dengan Supervisor Klinis dan hubungi DPJP', 'Laksanakan oksigenasi/suction sesuai asesmen, kewenangan, dan SPO RS', 'Pantau tanda vital serta respons pasien', 'Dokumentasikan instruksi medis dan seluruh tindakan'],
+  MERAH: ['Lakukan asesmen kegawatdaruratan segera', 'Aktifkan protokol edema paru unit', 'Kolaborasi dengan Perawat Mahir dan hubungi DPJP', 'Laksanakan oksigenasi/suction sesuai asesmen, kewenangan, dan SPO RS', 'Pantau tanda vital serta respons pasien', 'Dokumentasikan instruksi medis dan seluruh tindakan'],
 };
 
 export function ProtocolChecklist({ zone, role, selected, onChange }: { zone: Zone; role: UserRole; selected: string[]; onChange: (items: string[]) => void }) {
@@ -11,7 +11,7 @@ export function ProtocolChecklist({ zone, role, selected, onChange }: { zone: Zo
   return (
     <div className="protocol-box">
       <div className="section-heading"><h3>Protokol {zone}</h3><span className="eyebrow">Checklist tindakan</span></div>
-      {restricted && <div className="notice danger">Perawat wajib segera mengeskalasi pasien Zona Merah kepada Supervisor Klinis/DPJP. Checklist tindakan Merah hanya dapat dicatat oleh Supervisor atau Dokter.</div>}
+      {restricted && <div className="notice danger">Perawat Pelaksana wajib segera mengeskalasi pasien Zona Merah kepada Perawat Mahir/DPJP. Checklist tindakan Merah hanya dapat dicatat oleh Perawat Mahir atau Dokter.</div>}
       <div className="check-list">
         {protocols[zone].map((item) => <label key={item} className={restricted ? 'disabled' : ''}>
           <input type="checkbox" disabled={restricted} checked={selected.includes(item)} onChange={(event) => onChange(event.target.checked ? [...selected, item] : selected.filter((value) => value !== item))} />
@@ -24,3 +24,4 @@ export function ProtocolChecklist({ zone, role, selected, onChange }: { zone: Zo
 }
 
 export { protocols };
+

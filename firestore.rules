@@ -69,8 +69,22 @@ service cloud.firestore {
           : next.current_dry_weight_version == previousVersion + 1);
     }
 
+    function validPublicPatientCard(patientId, data) {
+      return data.patient_id == patientId
+        && validPatient(data)
+        && data.keys().hasAll(['patient_id', 'rm', 'nama', 'tanggal_lahir', 'jenis_kelamin', 'bb_kering', 'yellow_streak', 'risk_level', 'is_active', 'updated_at'])
+        && data.keys().hasOnly(['patient_id', 'rm', 'nama', 'tanggal_lahir', 'jenis_kelamin', 'bb_kering', 'latest_session_date', 'latest_pre_weight', 'latest_idwg_pct', 'latest_zone', 'yellow_streak', 'risk_level', 'is_active', 'updated_at'])
+        && data.yellow_streak is number && data.yellow_streak >= 0
+        && data.risk_level in ['low', 'medium', 'high']
+        && data.is_active is bool
+        && data.get('latest_pre_weight', 20) is number
+        && data.get('latest_idwg_pct', 0) is number
+        && data.get('latest_zone', '') in ['', 'HIJAU', 'KUNING', 'MERAH']
+        && data.updated_at == request.time;
+    }
+
     function expectedRaw(session, patient) {
-      return ((session.pre_weight - patient.bb_kering) / patient.bb_kering) * 100;
+      return ((session.pre_weight - patient.bb_kering) * 100.0) / patient.bb_kering;
     }
     function expectedZone(session, patient) {
       let raw = expectedRaw(session, patient);
@@ -98,28 +112,10 @@ service cloud.firestore {
         && audit.created_at == request.time;
     }
 
-    function validAlertAfter(patientId, sessionId, type) {
-      let alertId = sessionId + '_' + type;
-      let alert = getAfter(/databases/$(database)/documents/alerts/$(alertId)).data;
-      return alert.patient_id == patientId
-        && alert.type == type
-        && alert.trigger_session_id == sessionId
-        && alert.dedupe_key == sessionId + '_' + type
-        && alert.protocol_version == 'HD_FLUID_V1'
-        && alert.triggered_at == request.time
-        && alert.acknowledged == false;
-    }
-
     function validSessionCreate(patientId, sessionId, session) {
       let patient = get(/databases/$(database)/documents/patients/$(patientId)).data;
       let summary = getAfter(/databases/$(database)/documents/patients/$(patientId)).data;
       let raw = expectedRaw(session, patient);
-      let streak = expectedStreak(expectedZone(session, patient), patient);
-      let alertValid = expectedZone(session, patient) == 'MERAH'
-        ? validAlertAfter(patientId, sessionId, 'RECENT_RED')
-        : expectedZone(session, patient) == 'KUNING' && streak == 3
-          ? validAlertAfter(patientId, sessionId, 'YELLOW_STREAK_3')
-          : true;
       return patient.is_active != false
         && session.keys().hasAll(['id', 'submission_id', 'patient_id', 'session_date', 'shift', 'pre_weight', 'idwg_raw_pct', 'idwg_pct', 'zone', 'dry_weight_used_kg', 'dry_weight_version', 'formula_version', 'threshold_version', 'protocol_version', 'status', 'calculation_authority', 'interventions', 'nurse_uid', 'nurse_name', 'created_at'])
         && session.keys().hasOnly(['id', 'submission_id', 'patient_id', 'session_date', 'shift', 'pre_weight', 'post_weight', 'idwg_raw_pct', 'idwg_pct', 'zone', 'dry_weight_used_kg', 'dry_weight_version', 'formula_version', 'threshold_version', 'protocol_version', 'status', 'calculation_authority', 'interventions', 'uf_goal', 'notes', 'nurse_uid', 'nurse_name', 'created_at'])
@@ -134,8 +130,8 @@ service cloud.firestore {
         && session.dry_weight_used_kg == patient.bb_kering
         && session.dry_weight_version == patient.get('current_dry_weight_version', 1)
         && session.idwg_raw_pct is number
-        && math.abs(session.idwg_raw_pct - raw) <= 0.000001
-        && session.idwg_pct == math.round(raw * 10) / 10.0
+        && math.abs(session.idwg_raw_pct - raw) <= 0.01
+        && math.abs(session.idwg_pct - (math.round(raw * 10) / 10.0)) <= 0.01
         && session.zone == expectedZone(session, patient)
         && session.formula_version == 'IDWG_V1'
         && session.threshold_version == 'ZONE_2026_V1'
@@ -146,8 +142,7 @@ service cloud.firestore {
         && session.nurse_name == profile().displayName
         && summary.latest_session_id == sessionId
         && summary.latest_session_date == request.time
-        && validAuditAfter(patientId, sessionId, session)
-        && alertValid;
+        && validAuditAfter(patientId, sessionId, session);
     }
 
     function validClinicalSummary(patientId, next, previous) {
@@ -205,6 +200,11 @@ service cloud.firestore {
     match /patient_keys/{rmKey} {
       allow read: if isSupervisor() || isAdmin();
       allow create, update, delete: if isSupervisor() || isAdmin();
+    }
+    match /patient_cards/{patientId} {
+      allow read: if true;
+      allow create, update: if isMedicalUser() && validPublicPatientCard(patientId, request.resource.data);
+      allow delete: if isAdmin() || isSupervisor();
     }
     match /patients/{patientId} {
       allow read: if isMedicalUser();

@@ -102,4 +102,21 @@ export interface AppData {
   alerts: Alert[];
 }
 
+export interface PublicPatientCard {
+  patient_id: string;
+  rm: string;
+  nama: string;
+  tanggal_lahir: string;
+  jenis_kelamin: 'L' | 'P';
+  bb_kering: number;
+  latest_session_date?: string;
+  latest_pre_weight?: number;
+  latest_idwg_pct?: number;
+  latest_zone?: Zone;
+  yellow_streak: number;
+  risk_level: 'low' | 'medium' | 'high';
+  is_active: boolean;
+  updated_at?: string;
+}
+
 export type DataMode = 'demo' | 'firebase';

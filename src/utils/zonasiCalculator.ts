@@ -1,4 +1,4 @@
-/**
+﻿/**
  * ZONASI-HD Core Clinical Calculation Engine
  * Pure functions — 100% testable, no side effects
  * Thresholds persis sesuai Proposal Inovasi ZONASI-HD
@@ -59,7 +59,7 @@ export function getZoneDescription(zone: Zone): string {
     case 'HIJAU':
       return 'Risiko rendah. Pertahankan asupan cairan dan diet seperti biasa. Bagus!';
     case 'KUNING':
-      return 'Risiko sedang. Kurangi minum & garam. Perawat akan pantau lebih ketat.';
+      return 'Risiko sedang. Kurangi minum & garam. Perawat Pelaksana akan memantau lebih ketat.';
     case 'MERAH':
       return 'RISIKO TINGGI! Kelebihan cairan berbahaya. Segera ikuti instruksi perawat & dokter.';
     default:
@@ -90,7 +90,7 @@ export function getQuickRecommendations(zone: Zone, role: string): string[] {
 
   if (zone === 'MERAH') {
     base.push('AKTIVASI PROTOKOL EDEMA PARU');
-    base.push('Lakukan asesmen segera dan eskalasi kepada Supervisor Klinis/DPJP');
+    base.push('Lakukan asesmen segera dan eskalasi kepada Perawat Mahir/DPJP');
     base.push('Ikuti protokol kegawatdaruratan dan instruksi medis setempat');
     base.push('Catat semua tindakan di rekam medis');
   }
@@ -125,3 +125,4 @@ export function isPreWeightReasonable(pre: number, dry: number): boolean {
   // Biasanya pre > dry, tapi beri tolerance kecil
   return pre >= dry * 0.95;
 }
+

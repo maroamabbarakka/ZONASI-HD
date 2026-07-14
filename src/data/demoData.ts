@@ -1,4 +1,4 @@
-import type { AppData, HDSession, Patient } from '../types';
+﻿import type { AppData, HDSession, Patient } from '../types';
 import { calculateIDWG, calculateYellowStreak, getZone } from '../utils/zonasiCalculator';
 
 const day = (offset: number, hour = 8) => {
@@ -49,11 +49,10 @@ function makeSession(patient: Patient, pct: number, index: number): HDSession {
     calculation_authority: 'CLIENT_MVP',
     interventions: [],
     nurse_uid: 'demo-pk3',
-    nurse_name: 'Perawat Demo',
+    nurse_name: 'Perawat Pelaksana Demo',
     created_at: timestamp,
   };
 }
-
 export function createDemoData(): AppData {
   const basePatients = patientSeeds.map((item) => ({ ...item, yellow_streak: 0, risk_level: 'low' as const }));
   const sessions = basePatients.flatMap((patient) => patterns[patient.id].map((pct, index) => makeSession(patient, pct, index)));
@@ -86,3 +85,4 @@ export function createDemoData(): AppData {
     }] : [],
   };
 }
+
