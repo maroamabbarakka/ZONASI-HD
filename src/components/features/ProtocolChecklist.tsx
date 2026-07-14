@@ -24,4 +24,3 @@ export function ProtocolChecklist({ zone, role, selected, onChange }: { zone: Zo
 }
 
 export { protocols };
-

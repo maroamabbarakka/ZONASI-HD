@@ -125,4 +125,3 @@ export function isPreWeightReasonable(pre: number, dry: number): boolean {
   // Biasanya pre > dry, tapi beri tolerance kecil
   return pre >= dry * 0.95;
 }
-
