@@ -1,4 +1,4 @@
-import { Download, FileSpreadsheet, Upload } from 'lucide-react';
+﻿import { Download, FileSpreadsheet, Upload } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { PatientImportRow, PatientInput } from '../../types';
 import { downloadPatientTemplate } from '../../utils/patientTemplate';
@@ -26,9 +26,18 @@ const genderCode = (value: unknown): PatientImportRow['jenis_kelamin'] => {
   return '';
 };
 const isValidDate = (value: string) => {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const date = new Date(`${value}T00:00:00`);
-  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value && date <= new Date();
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  const today = new Date();
+  const todayUtc = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+  return date.getUTCFullYear() === year
+    && date.getUTCMonth() === month - 1
+    && date.getUTCDate() === day
+    && date.getTime() <= todayUtc;
 };
 
 export function PatientImport({ existingRms, onImport, onDone }: { existingRms: string[]; onImport: (rows: PatientInput[]) => Promise<{ imported: number; failed: Array<{ rm: string; message: string }> }>; onDone: () => void }) {
@@ -104,7 +113,7 @@ export function PatientImport({ existingRms, onImport, onDone }: { existingRms: 
       <button type="button" className="button secondary" onClick={downloadPatientTemplate}><Download /> Unduh template</button>
     </div>
     <label className="upload-box"><FileSpreadsheet /><strong>Pilih file Excel</strong><span>File dibaca di perangkat ini dan tidak disimpan sebagai berkas mentah.</span><input type="file" accept=".xlsx" onChange={(event) => { const file = event.target.files?.[0]; if (file) void parse(file).catch((error) => setMessage(error.message)); }} /></label>
-    {fileName && <p className="import-summary"><b>Dry run: {fileName}</b> · {rows.length} baris · {rows.length - invalid} valid · {invalid} konflik/error</p>}
+    {fileName && <p className="import-summary"><b>Pemeriksaan awal: {fileName}</b> · {rows.length} baris · {rows.length - invalid} valid · {invalid} konflik/error</p>}
     {rows.length > 0 && <div className="table-wrap import-table"><table><thead><tr><th>Baris</th><th>RM *</th><th>Nama</th><th>Tanggal lahir *</th><th>JK</th><th>BB Kering</th><th>Status</th></tr></thead><tbody>{rows.map((row, index) => <tr key={`${row.rowNumber}-${index}`}><td>{row.rowNumber}</td><td><input value={row.rm} onChange={(event) => update(index, { rm: event.target.value })} /></td><td>{row.nama}</td><td><input type="date" value={row.tanggal_lahir} onChange={(event) => update(index, { tanggal_lahir: event.target.value })} /></td><td><select value={row.jenis_kelamin} onChange={(event) => update(index, { jenis_kelamin: event.target.value as '' | 'L' | 'P' })}><option value="">Pilih</option><option value="L">L</option><option value="P">P</option></select></td><td><input type="number" step="0.1" value={row.bb_kering} onChange={(event) => update(index, { bb_kering: Number(event.target.value) })} /></td><td>{validation[index].length ? <span className="import-error">{validation[index].join(', ')}</span> : <span className="import-ok">Siap</span>}</td></tr>)}</tbody></table></div>}
     {message && <div className="notice warning">{message}</div>}
     <div className="modal-actions"><button className="button secondary" onClick={onDone}>Tutup</button><button className="button primary" disabled={!rows.length || invalid > 0 || loading} onClick={submit}><Upload />{loading ? 'Mengimpor…' : `Konfirmasi impor ${rows.length} pasien`}</button></div>
